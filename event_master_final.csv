@@ -1,0 +1,195 @@
+﻿event_id,event_name,sport,competition,start_date,end_date,location,source_url,duration_days
+EV0001,Inter - Liverpool,Calcio,Champions League,2022-02-16,2022-02-16,Milano,,1
+EV0002,Juventus - Villarreal,Calcio,Champions League,2022-03-16,2022-03-16,Torino,,1
+EV0003,Milan - Tottenham,Calcio,Champions League,2023-02-14,2023-02-14,Milano,,1
+EV0004,Inter - Porto,Calcio,Champions League,2023-02-22,2023-02-22,Milano,,1
+EV0005,Napoli - Eintracht Frankfurt,Calcio,Champions League,2023-03-15,2023-03-15,Napoli,,1
+EV0006,Milan - Napoli,Calcio,Champions League,2023-04-12,2023-04-12,Milano,,1
+EV0007,Napoli - Milan,Calcio,Champions League,2023-04-18,2023-04-18,Napoli,,1
+EV0008,Inter - Benfica,Calcio,Champions League,2023-04-19,2023-04-19,Milano,,1
+EV0009,Milan - Inter,Calcio,Champions League,2023-05-10,2023-05-10,Milano,,1
+EV0010,Inter - Milan,Calcio,Champions League,2023-05-16,2023-05-16,Milano,,1
+EV0011,Lazio - Bayern Monaco,Calcio,Champions League,2024-02-14,2024-02-14,Roma,,1
+EV0012,Inter - Atletico Madrid,Calcio,Champions League,2024-02-20,2024-02-20,Milano,,1
+EV0013,Napoli - Barcellona,Calcio,Champions League,2024-02-21,2024-02-21,Napoli,,1
+EV0014,Inter - Feyenoord,Calcio,Champions League,2025-03-11,2025-03-11,Milano,,1
+EV0015,Inter - Bayern Monaco,Calcio,Champions League,2025-04-16,2025-04-16,Milano,,1
+EV0016,Inter - Barcellona,Calcio,Champions League,2025-05-06,2025-05-06,Milano,,1
+EV0017,Atalanta - Bayern Monaco,Calcio,Champions League,2026-03-10,2026-03-10,Bergamo,,1
+EV0018,Atalanta - Bayer Leverkusen,Calcio,Europa League,2022-03-10,2022-03-10,Bergamo,,1
+EV0019,Atalanta - RB Leipzig,Calcio,Europa League,2022-04-14,2022-04-14,Bergamo,,1
+EV0020,Roma - Real Sociedad,Calcio,Europa League,2023-03-09,2023-03-09,Roma,,1
+EV0021,Juventus - Friburgo,Calcio,Europa League,2023-03-09,2023-03-09,Torino,,1
+EV0022,Juventus - Sporting CP,Calcio,Europa League,2023-04-13,2023-04-13,Torino,,1
+EV0023,Roma - Feyenoord,Calcio,Europa League,2023-04-20,2023-04-20,Roma,,1
+EV0024,Juventus - Siviglia,Calcio,Europa League,2023-05-11,2023-05-11,Torino,,1
+EV0025,Roma - Bayer Leverkusen,Calcio,Europa League,2023-05-11,2023-05-11,Roma,,1
+EV0026,Roma - Brighton,Calcio,Europa League,2024-03-07,2024-03-07,Roma,,1
+EV0027,Milan - Slavia Praga,Calcio,Europa League,2024-03-07,2024-03-07,Milano,,1
+EV0028,Atalanta - Sporting CP,Calcio,Europa League,2024-03-14,2024-03-14,Bergamo,,1
+EV0029,Milan - Roma,Calcio,Europa League,2024-04-11,2024-04-11,Milano,,1
+EV0030,Roma - Milan,Calcio,Europa League,2024-04-18,2024-04-18,Roma,,1
+EV0031,Atalanta - Liverpool,Calcio,Europa League,2024-04-18,2024-04-18,Bergamo,,1
+EV0032,Roma - Bayer Leverkusen,Calcio,Europa League,2024-05-02,2024-05-02,Roma,,1
+EV0033,Atalanta - Marsiglia,Calcio,Europa League,2024-05-09,2024-05-09,Bergamo,,1
+EV0034,Roma - Athletic Bilbao,Calcio,Europa League,2025-03-06,2025-03-06,Roma,,1
+EV0035,Lazio - Viktoria Plzen,Calcio,Europa League,2025-03-13,2025-03-13,Roma,,1
+EV0036,Lazio - Bodo Glimt,Calcio,Europa League,2025-04-17,2025-04-17,Roma,,1
+EV0037,Bologna - Roma,Calcio,Europa League,2026-03-12,2026-03-12,Bologna,,1
+EV0038,Roma - Bologna,Calcio,Europa League,2026-03-19,2026-03-19,Roma,,1
+EV0039,Roma - Vitesse,Calcio,Conference League,2022-03-17,2022-03-17,Roma,,1
+EV0040,Roma - Bodo Glimt,Calcio,Conference League,2022-04-14,2022-04-14,Roma,,1
+EV0041,Roma - Leicester,Calcio,Conference League,2022-05-05,2022-05-05,Roma,,1
+EV0042,Lazio - AZ Alkmaar,Calcio,Conference League,2023-03-07,2023-03-07,Roma,,1
+EV0043,Fiorentina - Sivasspor,Calcio,Conference League,2023-03-09,2023-03-09,Firenze,,1
+EV0044,Fiorentina - Lech Poznan,Calcio,Conference League,2023-04-20,2023-04-20,Firenze,,1
+EV0045,Fiorentina - Basilea,Calcio,Conference League,2023-05-11,2023-05-11,Firenze,,1
+EV0046,Fiorentina - Maccabi Haifa,Calcio,Conference League,2024-03-14,2024-03-14,Firenze,,1
+EV0047,Fiorentina - Viktoria Plzen,Calcio,Conference League,2024-04-18,2024-04-18,Firenze,,1
+EV0048,Fiorentina - Club Brugge,Calcio,Conference League,2024-05-02,2024-05-02,Firenze,,1
+EV0049,Fiorentina - Panathinaikos,Calcio,Conference League,2025-03-13,2025-03-13,Firenze,,1
+EV0050,Fiorentina - Celje,Calcio,Conference League,2025-04-17,2025-04-17,Firenze,,1
+EV0051,Fiorentina - Betis Siviglia,Calcio,Conference League,2025-05-08,2025-05-08,Firenze,,1
+EV0052,Fiorentina - Rakow,Calcio,Conference League,2026-03-12,2026-03-12,Firenze,,1
+EV0053,Italia - Macedonia del Nord,Calcio,Nazionale,2022-03-24,2022-03-24,Palermo,,1
+EV0054,Italia - Germania,Calcio,Nazionale,2022-06-04,2022-06-04,Bologna,,1
+EV0055,Italia - Ungheria,Calcio,Nazionale,2022-06-07,2022-06-07,Cesena,,1
+EV0056,Italia - Inghilterra,Calcio,Nazionale,2022-09-23,2022-09-23,Milano,,1
+EV0057,Italia - Inghilterra,Calcio,Nazionale,2023-03-23,2023-03-23,Napoli,,1
+EV0058,Italia - Ucraina,Calcio,Nazionale,2023-09-12,2023-09-12,Milano,,1
+EV0059,Italia - Malta,Calcio,Nazionale,2023-10-14,2023-10-14,Bari,,1
+EV0060,Italia - Macedonia del Nord,Calcio,Nazionale,2023-11-17,2023-11-17,Roma,,1
+EV0061,Italia - Belgio,Calcio,Nazionale,2024-10-10,2024-10-10,Roma,,1
+EV0062,Italia - Israele,Calcio,Nazionale,2024-10-14,2024-10-14,Udine,,1
+EV0063,Italia - Francia,Calcio,Nazionale,2024-11-17,2024-11-17,Milano,,1
+EV0064,Italia - Germania,Calcio,Nazionale,2025-03-20,2025-03-20,Milano,,1
+EV0065,Italia - Moldova,Calcio,Nazionale,2025-06-09,2025-06-09,Reggio Emilia,,1
+EV0066,Italia - Estonia,Calcio,Nazionale,2025-09-05,2025-09-05,Bergamo,,1
+EV0067,Italia - Israele,Calcio,Nazionale,2025-10-14,2025-10-14,Udine,,1
+EV0068,Italia - Norvegia,Calcio,Nazionale,2025-11-16,2025-11-16,Milano,,1
+EV0069,Italia - Irlanda del Nord,Calcio,Nazionale,2026-03-26,2026-03-26,Bergamo,,1
+EV0070,Internazionali BNL d Italia 2022,Tennis,Internazionali d'Italia,2022-05-08,2022-05-15,Roma,,8
+EV0071,Internazionali BNL d Italia 2023,Tennis,Internazionali d'Italia,2023-05-10,2023-05-21,Roma,,12
+EV0072,Internazionali BNL d Italia 2024,Tennis,Internazionali d'Italia,2024-05-08,2024-05-19,Roma,,12
+EV0073,Internazionali BNL d Italia 2025,Tennis,Internazionali d'Italia,2025-05-07,2025-05-18,Roma,,12
+EV0074,ATP Finals Torino 2022,Tennis,ATP Finals,2022-11-13,2022-11-20,Torino,,8
+EV0075,ATP Finals Torino 2023,Tennis,ATP Finals,2023-11-12,2023-11-19,Torino,,8
+EV0076,ATP Finals Torino 2024,Tennis,ATP Finals,2024-11-10,2024-11-17,Torino,,8
+EV0077,ATP Finals Torino 2025,Tennis,ATP Finals,2025-11-09,2025-11-16,Torino,,8
+EV0078,Davis Cup Finals girone Bologna 2022,Tennis,Coppa Davis,2022-09-13,2022-09-18,Bologna,,6
+EV0079,Davis Cup Finals girone Bologna 2023,Tennis,Coppa Davis,2023-09-12,2023-09-17,Bologna,,6
+EV0080,Davis Cup Finals girone Bologna 2024,Tennis,Coppa Davis,2024-09-10,2024-09-15,Bologna,,6
+EV0081,Davis Cup Finals Bologna 2025,Tennis,Coppa Davis,2025-11-18,2025-11-23,Bologna,,6
+EV0082,ATP Firenze 2022,Tennis,ATP 250,2022-10-10,2022-10-16,Firenze,,7
+EV0083,ATP Napoli 2022,Tennis,ATP 250,2022-10-17,2022-10-23,Napoli,,7
+EV0084,Palermo Ladies Open 2022,Tennis,WTA 250,2022-07-18,2022-07-24,Palermo,,7
+EV0085,Palermo Ladies Open 2023,Tennis,WTA 250,2023-07-17,2023-07-23,Palermo,,7
+EV0086,Palermo Ladies Open 2024,Tennis,WTA 250,2024-07-15,2024-07-21,Palermo,,7
+EV0087,F1 GP Emilia-Romagna 2022,Formula 1,Gran Premi,2022-04-22,2022-04-24,Imola,,3
+EV0088,F1 GP Italia 2022,Formula 1,Gran Premi,2022-09-09,2022-09-11,Monza,,3
+EV0089,F1 GP Italia 2023,Formula 1,Gran Premi,2023-09-01,2023-09-03,Monza,,3
+EV0090,F1 GP Emilia-Romagna 2024,Formula 1,Gran Premi,2024-05-17,2024-05-19,Imola,,3
+EV0091,F1 GP Italia 2024,Formula 1,Gran Premi,2024-08-30,2024-09-01,Monza,,3
+EV0092,F1 GP Emilia-Romagna 2025,Formula 1,Gran Premi,2025-05-16,2025-05-18,Imola,,3
+EV0093,F1 GP Italia 2025,Formula 1,Gran Premi,2025-09-05,2025-09-07,Monza,,3
+EV0094,MotoGP GP Italia 2022,MotoGP,Gran Premi,2022-05-27,2022-05-29,Mugello,,3
+EV0095,MotoGP GP San Marino 2022,MotoGP,Gran Premi,2022-09-02,2022-09-04,Misano Adriatico,,3
+EV0096,MotoGP GP Italia 2023,MotoGP,Gran Premi,2023-06-09,2023-06-11,Mugello,,3
+EV0097,MotoGP GP San Marino 2023,MotoGP,Gran Premi,2023-09-08,2023-09-10,Misano Adriatico,,3
+EV0098,MotoGP GP Italia 2024,MotoGP,Gran Premi,2024-05-31,2024-06-02,Mugello,,3
+EV0099,MotoGP GP San Marino 2024,MotoGP,Gran Premi,2024-09-06,2024-09-08,Misano Adriatico,,3
+EV0100,MotoGP GP Emilia-Romagna 2024,MotoGP,Gran Premi,2024-09-20,2024-09-22,Misano Adriatico,,3
+EV0101,MotoGP GP Italia 2025,MotoGP,Gran Premi,2025-06-20,2025-06-22,Mugello,,3
+EV0102,MotoGP GP San Marino 2025,MotoGP,Gran Premi,2025-09-12,2025-09-14,Misano Adriatico,,3
+EV0103,Italia - Inghilterra Sei Nazioni 2022,Rugby,Sei Nazioni,2022-02-13,2022-02-13,Roma,,1
+EV0104,Italia - Scozia Sei Nazioni 2022,Rugby,Sei Nazioni,2022-03-12,2022-03-12,Roma,,1
+EV0105,Italia - Francia Sei Nazioni 2023,Rugby,Sei Nazioni,2023-02-05,2023-02-05,Roma,,1
+EV0106,Italia - Irlanda Sei Nazioni 2023,Rugby,Sei Nazioni,2023-02-25,2023-02-25,Roma,,1
+EV0107,Italia - Galles Sei Nazioni 2023,Rugby,Sei Nazioni,2023-03-11,2023-03-11,Roma,,1
+EV0108,Italia - Inghilterra Sei Nazioni 2024,Rugby,Sei Nazioni,2024-02-03,2024-02-03,Roma,,1
+EV0109,Italia - Scozia Sei Nazioni 2024,Rugby,Sei Nazioni,2024-03-09,2024-03-09,Roma,,1
+EV0110,Italia - Galles Sei Nazioni 2025,Rugby,Sei Nazioni,2025-02-08,2025-02-08,Roma,,1
+EV0111,Italia - Francia Sei Nazioni 2025,Rugby,Sei Nazioni,2025-02-23,2025-02-23,Roma,,1
+EV0112,Italia - Irlanda Sei Nazioni 2025,Rugby,Sei Nazioni,2025-03-15,2025-03-15,Roma,,1
+EV0113,Italia - Scozia Sei Nazioni 2026,Rugby,Sei Nazioni,2026-02-07,2026-02-07,Roma,,1
+EV0114,Italia - Inghilterra Sei Nazioni 2026,Rugby,Sei Nazioni,2026-03-07,2026-03-07,Roma,,1
+EV0115,Open d Italia Golf 2022,Golf,Open d'Italia,2022-09-15,2022-09-18,Guidonia Montecelio,,4
+EV0116,Open d Italia Golf 2023,Golf,Open d'Italia,2023-05-04,2023-05-07,Guidonia Montecelio,,4
+EV0117,Open d Italia Golf 2024,Golf,Open d'Italia,2024-06-27,2024-06-30,Cervia,,4
+EV0118,Open d Italia Golf 2025,Golf,Open d'Italia,2025-06-26,2025-06-29,Argentario,,4
+EV0119,Ryder Cup Roma 2023,Golf,Ryder Cup,2023-09-29,2023-10-01,Guidonia Montecelio,,3
+EV0120,Maratona di Roma 2022,Atletica,Maratone,2022-03-27,2022-03-27,Roma,,1
+EV0121,Maratona di Roma 2023,Atletica,Maratone,2023-03-19,2023-03-19,Roma,,1
+EV0122,Maratona di Roma 2024,Atletica,Maratone,2024-03-17,2024-03-17,Roma,,1
+EV0123,Maratona di Roma 2025,Atletica,Maratone,2025-03-16,2025-03-16,Roma,,1
+EV0124,Maratona di Roma 2026,Atletica,Maratone,2026-03-22,2026-03-22,Roma,,1
+EV0125,Maratona di Milano 2023,Atletica,Maratone,2023-04-02,2023-04-02,Milano,,1
+EV0126,Maratona di Milano 2024,Atletica,Maratone,2024-04-07,2024-04-07,Milano,,1
+EV0127,Maratona di Milano 2025,Atletica,Maratone,2025-04-06,2025-04-06,Milano,,1
+EV0128,Europei di atletica Roma 2024,Atletica,Europei,2024-06-07,2024-06-12,Roma,,6
+EV0129,Europei acquatici Roma 2022,Nuoto,Europei,2022-08-11,2022-08-21,Roma,,11
+EV0130,EuroVolley donne 2023,Pallavolo,Europei,2023-08-15,2023-08-29,"Verona, Monza, Torino, Firenze",,15
+EV0131,EuroVolley uomini 2023,Pallavolo,Europei,2023-08-28,2023-09-16,"Bologna, Perugia, Ancona, Bari, Roma",,20
+EV0132,Olimpiadi invernali Milano Cortina 2026,Sport invernali,Olimpiadi,2026-02-04,2026-02-22,"Lombardia, Veneto, Trento, Bolzano",,19
+EV0133,Paralimpiadi invernali Milano Cortina 2026,Sport invernali,Paralimpiadi,2026-03-04,2026-03-15,"Lombardia, Veneto, Trento",,12
+EV0134,Universiadi invernali Torino 2025,Sport invernali,Universiadi,2025-01-13,2025-01-23,Piemonte,,11
+EV0135,Coppa del Mondo Val Gardena 2022,Sci alpino,Coppa del Mondo,2022-12-15,2022-12-17,Val Gardena,,3
+EV0136,Coppa del Mondo Alta Badia 2022,Sci alpino,Coppa del Mondo,2022-12-18,2022-12-19,Alta Badia,,2
+EV0137,Coppa del Mondo Madonna di Campiglio 2022,Sci alpino,Coppa del Mondo,2022-12-22,2022-12-22,Madonna di Campiglio,,1
+EV0138,Coppa del Mondo Bormio 2022,Sci alpino,Coppa del Mondo,2022-12-28,2022-12-29,Bormio,,2
+EV0139,Coppa del Mondo Bormio 2023,Sci alpino,Coppa del Mondo,2023-12-28,2023-12-29,Bormio,,2
+EV0140,Coppa del Mondo Val Gardena 2024,Sci alpino,Coppa del Mondo,2024-12-20,2024-12-21,Val Gardena,,2
+EV0141,Coppa del Mondo Alta Badia 2024,Sci alpino,Coppa del Mondo,2024-12-22,2024-12-23,Alta Badia,,2
+EV0142,Coppa del Mondo Bormio 2024,Sci alpino,Coppa del Mondo,2024-12-28,2024-12-29,Bormio,,2
+EV0143,Coppa del Mondo Val Gardena 2025,Sci alpino,Coppa del Mondo,2025-12-19,2025-12-20,Val Gardena,,2
+EV0144,Coppa del Mondo Alta Badia 2025,Sci alpino,Coppa del Mondo,2025-12-21,2025-12-22,Alta Badia,,2
+EV0145,Coppa del Mondo Madonna di Campiglio 2025,Sci alpino,Coppa del Mondo,2025-01-08,2025-01-08,Madonna di Campiglio,,1
+EV0146,Coppa del Mondo Livigno 2025,Sci alpino,Coppa del Mondo,2025-12-27,2025-12-27,Livigno,,1
+EV0147,Coppa del Mondo Madonna di Campiglio 2026,Sci alpino,Coppa del Mondo,2026-01-07,2026-01-07,Madonna di Campiglio,,1
+EV0148,Coppa del Mondo biathlon Anterselva 2022,Biathlon,Coppa del Mondo,2022-01-20,2022-01-23,Anterselva,,4
+EV0149,Coppa del Mondo biathlon Anterselva 2023,Biathlon,Coppa del Mondo,2023-01-19,2023-01-22,Anterselva,,4
+EV0150,Coppa del Mondo biathlon Anterselva 2024,Biathlon,Coppa del Mondo,2024-01-18,2024-01-21,Anterselva,,4
+EV0151,Coppa del Mondo biathlon Anterselva 2025,Biathlon,Coppa del Mondo,2025-01-23,2025-01-26,Anterselva,,4
+EV0152,EuroBasket Milano 2022,Basket,EuroBasket,2022-09-02,2022-09-08,Milano,https://fip.it/fiba-eurobasket-2022-2-8-settembre-100-giorni-al-via-partito-il-tissot-countdown-clock-in-galleria-vittorio-emanuele-ii-a-milano/,7
+EV0153,VNL Finals Bologna 2022,Pallavolo,Volleyball Nations League,2022-07-20,2022-07-24,Bologna,https://it.volleyballworld.com/volleyball/competitions/volleyball-nations-league/2022/,5
+EV0154,WorldSBK Misano 2022,Superbike,WorldSBK,2022-06-10,2022-06-12,Misano Adriatico,https://www.worldsbk.com/,3
+EV0155,WorldSBK Misano 2023,Superbike,WorldSBK,2023-06-02,2023-06-04,Misano Adriatico,https://www.worldsbk.com/,3
+EV0156,WorldSBK Imola 2023,Superbike,WorldSBK,2023-07-14,2023-07-16,Imola,https://www.worldsbk.com/,3
+EV0157,WorldSBK Misano 2024,Superbike,WorldSBK,2024-06-14,2024-06-16,Misano Adriatico,https://www.worldsbk.com/,3
+EV0158,WorldSBK Cremona 2024,Superbike,WorldSBK,2024-09-20,2024-09-22,Cremona,https://www.worldsbk.com/,3
+EV0159,WorldSBK Cremona 2025,Superbike,WorldSBK,2025-05-02,2025-05-04,Cremona,https://www.worldsbk.com/,3
+EV0160,WorldSBK Misano 2025,Superbike,WorldSBK,2025-06-13,2025-06-15,Misano Adriatico,https://www.worldsbk.com/,3
+EV0161,Coppa del Mondo Cortina donne 2023,Sci alpino,Coppa del Mondo,2023-01-20,2023-01-22,Cortina d'Ampezzo,https://www.fis-ski.com/DB/alpine-skiing/calendar-results.html?categorycode=WC&seasoncode=2023&sectorcode=AL,3
+EV0162,Coppa del Mondo Kronplatz 2023,Sci alpino,Coppa del Mondo,2023-01-24,2023-01-25,Kronplatz,https://www.fis-ski.com/DB/alpine-skiing/calendar-results.html?categorycode=WC&seasoncode=2023&sectorcode=AL,2
+EV0163,Coppa del Mondo Cortina uomini 2023,Sci alpino,Coppa del Mondo,2023-01-28,2023-01-29,Cortina d'Ampezzo,https://www.fis-ski.com/DB/alpine-skiing/calendar-results.html?categorycode=WC&seasoncode=2023&sectorcode=AL,2
+EV0164,Coppa del Mondo Val Gardena 2023,Sci alpino,Coppa del Mondo,2023-12-14,2023-12-16,Val Gardena,https://www.fis-ski.com/DB/alpine-skiing/calendar-results.html?categorycode=WC&seasoncode=2023&sectorcode=AL,3
+EV0165,Coppa del Mondo Alta Badia 2023,Sci alpino,Coppa del Mondo,2023-12-17,2023-12-18,Alta Badia,https://www.fis-ski.com/DB/alpine-skiing/calendar-results.html?categorycode=WC&seasoncode=2023&sectorcode=AL,2
+EV0166,Coppa del Mondo Madonna di Campiglio 2023,Sci alpino,Coppa del Mondo,2023-12-22,2023-12-22,Madonna di Campiglio,https://www.fis-ski.com/DB/alpine-skiing/calendar-results.html?categorycode=WC&seasoncode=2023&sectorcode=AL,1
+EV0167,Coppa del Mondo Cortina 2022,Sci alpino,Coppa del Mondo,2022-01-22,2022-01-23,Cortina d'Ampezzo,https://www.fis-ski.com/DB/alpine-skiing/calendar-results.html?categorycode=WC&seasoncode=2022&sectorcode=AL,2
+EV0168,Coppa del Mondo Kronplatz 2022,Sci alpino,Coppa del Mondo,2022-01-25,2022-01-25,Kronplatz,https://www.fis-ski.com/DB/alpine-skiing/calendar-results.html?categorycode=WC&seasoncode=2022&sectorcode=AL,1
+EV0169,Coppa del Mondo Sestriere 2022,Sci alpino,Coppa del Mondo,2022-12-10,2022-12-11,Sestriere,https://www.fis-ski.com/DB/alpine-skiing/calendar-results.html?categorycode=WC&seasoncode=2023&sectorcode=AL,2
+EV0170,Coppa del Mondo Cortina 2024,Sci alpino,Coppa del Mondo,2024-01-26,2024-01-28,Cortina d'Ampezzo,https://www.fisi.org/le-tappe-italiane-della-cdm-2023-2024/,3
+EV0171,Coppa del Mondo Kronplatz 2024,Sci alpino,Coppa del Mondo,2024-01-30,2024-01-30,Kronplatz,https://www.fisi.org/le-tappe-italiane-della-cdm-2023-2024/,1
+EV0172,Coppa del Mondo Cortina 2025,Sci alpino,Coppa del Mondo,2025-01-18,2025-01-19,Cortina d'Ampezzo,https://www.fisi.org/gli-appuntamenti-di-coppa-del-mondo-sulle-montagne-italiane-nel-2024-25/,2
+EV0173,Coppa del Mondo Kronplatz 2025,Sci alpino,Coppa del Mondo,2025-01-21,2025-01-21,Kronplatz,https://www.fisi.org/gli-appuntamenti-di-coppa-del-mondo-sulle-montagne-italiane-nel-2024-25/,1
+EV0174,Coppa del Mondo Sestriere 2025,Sci alpino,Coppa del Mondo,2025-02-22,2025-02-23,Sestriere,https://www.fisi.org/gli-appuntamenti-di-coppa-del-mondo-sulle-montagne-italiane-nel-2024-25/,2
+EV0175,Coppa del Mondo La Thuile 2025,Sci alpino,Coppa del Mondo,2025-03-13,2025-03-14,La Thuile,https://www.fis-ski.com/DB/general/event-details.html?eventid=55730&seasoncode=2025&sectorcode=AL,2
+EV0176,Maratona di Firenze 2022,Atletica,Maratona,2022-11-27,2022-11-27,Firenze,https://www.comune.firenze.it/parole-chiave/firenze-marathon,1
+EV0177,Maratona di Firenze 2023,Atletica,Maratona,2023-11-26,2023-11-26,Firenze,https://www.comune.firenze.it/parole-chiave/firenze-marathon,1
+EV0178,Maratona di Firenze 2024,Atletica,Maratona,2024-11-24,2024-11-24,Firenze,https://www.comune.firenze.it/parole-chiave/firenze-marathon,1
+EV0179,Maratona di Firenze 2025,Atletica,Maratona,2025-11-30,2025-11-30,Firenze,https://www.comune.firenze.it/parole-chiave/firenze-marathon,1
+EV0180,Maratona di Milano 2022,Atletica,Maratona,2022-04-03,2022-04-03,Milano,https://worldathletics.org/competition/calendar-results/results/7176763,1
+EV0181,Mondiali beach volley Roma 2022,Pallavolo,Mondiali beach volley,2022-06-10,2022-06-19,Roma,https://www.fivb.com/fivb-beach-volleyball-world-championships-2022-to-kick-off-this-summer-in-italian-capital/,10
+EV0182,EuroBasket femminile Bologna 2025,Basket,EuroBasket femminile,2025-06-18,2025-06-21,Bologna,https://www.fiba.basketball/en/events/fiba-womens-eurobasket-2025/news/group-b-who-is-playing-fiba-womens-eurobasket-2025-in-bologna,4
+EV0183,Venice Marathon 2022,Atletica,Maratona,2022-10-23,2022-10-23,Venezia,https://venicemarathon.it/en/history-en,1
+EV0184,Venice Marathon 2023,Atletica,Maratona,2023-10-22,2023-10-22,Venezia,https://venicemarathon.it/en/history-en,1
+EV0185,Venice Marathon 2024,Atletica,Maratona,2024-10-27,2024-10-27,Venezia,https://venicemarathon.it/en/history-en,1
+EV0186,Venice Marathon 2025,Atletica,Maratona,2025-10-26,2025-10-26,Venezia,https://venicemarathon.it/en/history-en,1
+EV0187,Tour de Ski 2024-2025,Sci di fondo,Tour de Ski,2024-12-28,2025-01-05,"Dobbiaco, Val di Fiemme",https://www.coni.it/it/news/coppa-del-mondo-i-18-convocati-azzurri-per-il-tradizionale-appuntamento-con-il-tour-de-ski.html,9
+EV0188,Tour de Ski 2025-2026,Sci di fondo,Tour de Ski,2025-12-28,2026-01-04,"Dobbiaco, Val di Fiemme",https://www.fisi.org/i-convocati-azzurri-per-la-ventesima-edizione-del-tour-de-ski-in-programma-fra-dobbiaco-e-val-di-fiemme/,8
+EV0189,Tour de Ski 2023-2024,Sci di fondo,Tour de Ski,2023-12-30,2024-01-07,"Dobbiaco, Val di Fiemme",https://www.fisi.org/le-tappe-italiane-della-cdm-2023-2024/,9
+EV0190,Tour de Ski Val di Fiemme 2023,Sci di fondo,Tour de Ski,2023-01-06,2023-01-08,Val di Fiemme,https://www.fisi.org/,3
+EV0191,Coppa del Mondo Cogne 2025,Sci di fondo,Coppa del Mondo,2025-01-31,2025-02-02,Cogne,https://www.fisi.org/gli-appuntamenti-di-coppa-del-mondo-sulle-montagne-italiane-nel-2024-25/,3
+EV0192,Coppa del Mondo Tarvisio 2026,Sci alpino,Coppa del Mondo,2026-01-17,2026-01-18,Tarvisio,https://www.fisi.org/tutte-le-gare-di-coppa-del-mondo-in-italia-nelle-discipline-olimpiche-nella-stagione-2025-26/,2
+EV0193,Coppa del Mondo Kronplatz 2026,Sci alpino,Coppa del Mondo,2026-01-20,2026-01-20,Kronplatz,https://www.fisi.org/tutte-le-gare-di-coppa-del-mondo-in-italia-nelle-discipline-olimpiche-nella-stagione-2025-26/,1
+EV0194,Coppa del Mondo Val di Fassa 2026,Sci alpino,Coppa del Mondo,2026-03-06,2026-03-08,Val di Fassa,https://www.fisi.org/tutte-le-gare-di-coppa-del-mondo-in-italia-nelle-discipline-olimpiche-nella-stagione-2025-26/,3
