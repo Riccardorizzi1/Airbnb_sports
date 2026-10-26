@@ -24,9 +24,9 @@ st.set_page_config(
 ROOT = Path(__file__).resolve().parent
 
 FILES = {
-    "reg": ROOT / "output_eurostat/eurostat_master_final.csv",
-    "prov": ROOT / "output_eurostat/eurostat_nuts3_annuale_2018_2025.csv",
-    "fr": ROOT / "forecast_nuts2_2026_2030_3_scenari.csv",
+    "reg": ROOT / "eurostat_master_final.csv",
+"prov": ROOT / "eurostat_nuts3_annuale_2018_2025.csv",
+"fp": ROOT / "forecast_nuts3_2026_2030_3_scenari.csv",
     "fp": ROOT / "output_eurostat/forecast_nuts3_2026_2030_3_scenari.csv",
     "eventi": ROOT / "AirbnbSports_Event_Master_Simone_Visitatori.xlsx",
     "screening": ROOT / "screening_eventi_completo.csv",
