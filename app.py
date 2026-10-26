@@ -14,7 +14,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
-from keplergl import KeplerGl
+try:
+    from keplergl import KeplerGl
+except ImportError:
+    KeplerGl = None
 
 st.set_page_config(
     page_title="Airbnb&Sports",
@@ -22,7 +25,7 @@ st.set_page_config(
     layout="wide"
 )
 
-VERSIONE = "v3.2 · GitHub paths fixed"
+VERSIONE = "v3.3 · Revisione dashboard"
 ROOT = Path(__file__).resolve().parent
 
 
@@ -75,10 +78,10 @@ COLORI = {
 
 PAGINE = [
     "Panorama nazionale",
-    "Analisi storica Eurostat",
-    "Analisi storica sportiva",
+    "Esplora un territorio",
+    "Eventi e domanda turistica",
     "Forecast 2026–2030",
-    "Metodologia"
+    "Dati e metodo"
 ]
 
 
@@ -196,6 +199,19 @@ def trova_colonna(df, *nomi):
     return None
 
 
+def date_eventi(serie):
+    """Date ISO, italiane, datetime Excel; valori non interpretabili diventano NaT."""
+    def converti(valore):
+        if pd.isna(valore):
+            return pd.NaT
+        if isinstance(valore, (int, float)):
+            return pd.to_datetime(valore, unit="D", origin="1899-12-30", errors="coerce") if 20000 < valore < 80000 else pd.NaT
+        testo = str(valore).strip()
+        iso = bool(re.match(r"^\d{4}-\d{2}-\d{2}", testo))
+        return pd.to_datetime(testo, errors="coerce", dayfirst=not iso)
+    return pd.to_datetime(serie.map(converti), errors="coerce")
+
+
 def grafico(fig, altezza=410):
 
     fig.update_layout(
@@ -211,6 +227,17 @@ def grafico(fig, altezza=410):
         )
     )
 
+    etichette = {
+        "data": "Mese", "year": "Anno", "month": "Mese", "mese": "Mese",
+        "guest_nights_total": "Pernottamenti degli ospiti",
+        "guest_nights_domestic": "Pernottamenti · residenti in Italia",
+        "guest_nights_foreign": "Pernottamenti · residenti all’estero",
+        "occupied_nights_total": "Notti di alloggio occupate",
+        "stays_total": "Soggiorni", "size": "Righe territoriali"
+    }
+    for asse in (fig.layout.xaxis, fig.layout.yaxis):
+        if asse.title.text in etichette:
+            asse.title.text = etichette[asse.title.text]
     fig.update_xaxes(
         gridcolor="rgba(120,150,170,0.12)"
     )
@@ -312,8 +339,28 @@ def mappa_kepler(df, livello, codice, campo, titolo):
         key=f"mostra_{titolo}"
     )
 
-    if mostra:
-
+    motore = st.radio(
+        "Visualizzazione della mappa", ["Kepler.gl", "Mappa semplice (senza WebGL)"],
+        index=0 if KeplerGl is not None else 1, horizontal=True, key=f"motore_{titolo}"
+    ) if mostra else None
+    if mostra and motore == "Mappa semplice (senza WebGL)":
+        try:
+            geo = {"type": "FeatureCollection", "features": confini_nuts(livello)}
+            fig = px.choropleth(
+                dati, geojson=geo, locations=codice,
+                featureidkey="properties.NUTS_ID", color=campo,
+                hover_name="territorio", color_continuous_scale=["#C7F1F6", "#5BC6E2", "#0E718F"],
+                labels={campo: "Pernottamenti degli ospiti"}
+            )
+            fig.update_geos(fitbounds="locations", visible=False, bgcolor="rgba(0,0,0,0)")
+            grafico(fig, 600)
+            st.caption("Geometrie ufficiali GISCO NUTS 2024; nessuna coordinata artificiale.")
+        except Exception as exc:
+            st.warning(f"Mappa non disponibile: {exc}. Consulta la tabella sottostante.")
+    if mostra and motore == "Kepler.gl" and KeplerGl is None:
+        st.info("Kepler.gl non è installato. Seleziona la mappa semplice.")
+    if mostra and motore == "Kepler.gl" and KeplerGl is not None:
+        st.caption("Se il riquadro è vuoto o segnala WebGL, scegli la mappa semplice.")
         editor = st.toggle(
             "Mostra strumenti Kepler",
             value=False,
@@ -690,6 +737,12 @@ section[data-testid="stSidebar"] * {{
     overflow: hidden;
 }}
 
+section[data-testid="stSidebar"] [data-baseweb="select"] * {{
+    color: #082B46 !important;
+}}
+section[data-testid="stSidebar"] [data-baseweb="select"] > div {{
+    background-color: #FDFEFF !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -838,7 +891,7 @@ with st.sidebar:
         ["Italia"] + sorted(nomi_reg),
 
         format_func=lambda x: (
-            x if x == "Italia"
+            "Italia — tutte le regioni" if x == "Italia"
             else f"{nomi_reg[x]} · {x}"
         )
     )
@@ -857,18 +910,18 @@ with st.sidebar:
         ),
 
         format_func=lambda x: (
-            x if x == "Tutte"
+            "Tutte le province" if x == "Tutte"
             else f"{nomi_prov[x]} · {x}"
         )
     )
 
     st.divider()
 
-    scenario = st.selectbox(
-        "Scenario predefinito",
-        SCENARI,
-        index=1
-    )
+    scenario = "Intermedio"
+    if pagina in ("Panorama nazionale", "Forecast 2026–2030"):
+        scenario = st.selectbox("Scenario predefinito", SCENARI, index=1)
+    if pagina in ("Panorama nazionale", "Dati e metodo"):
+        st.caption("Questa pagina mostra il quadro nazionale; i filtri territoriali valgono nelle altre sezioni.")
 
 
 # ============================================================
@@ -978,7 +1031,7 @@ if pagina == "Panorama nazionale":
 # 11. ANALISI STORICA EUROSTAT
 # ============================================================
 
-elif pagina == "Analisi storica Eurostat":
+elif pagina == "Esplora un territorio":
 
     st.header(
         "Analisi storica Eurostat · dal 2022"
@@ -993,10 +1046,17 @@ elif pagina == "Analisi storica Eurostat":
         horizontal=True
     )
 
+    territorio = "Italia" if regione == "Italia" else nomi_reg[regione]
+    if livello == "Annuale NUTS3" and provincia != "Tutte":
+        territorio = nomi_prov[provincia]
+    st.subheader(territorio)
+    if livello == "Mensile NUTS2" and provincia != "Tutte":
+        st.caption("La vista mensile usa la regione selezionata (Italia se non selezionata). Per la provincia scegli Annuale NUTS3.")
+    st.caption("Guest nights = pernottamenti degli ospiti; stays = soggiorni; notti occupate = notti di alloggio. Eurostat non misura il prezzo Airbnb.")
     indicatori = {
         "Guest nights totali": "guest_nights_total",
-        "Domestic": "guest_nights_domestic",
-        "Foreign": "guest_nights_foreign",
+        "Pernottamenti domestici": "guest_nights_domestic",
+        "Pernottamenti stranieri": "guest_nights_foreign",
         "Stays": "stays_total",
         "Notti occupate": "occupied_nights_total"
     }
@@ -1209,7 +1269,7 @@ elif pagina == "Analisi storica Eurostat":
 # 12. ANALISI STORICA SPORTIVA
 # ============================================================
 
-elif pagina == "Analisi storica sportiva":
+elif pagina == "Eventi e domanda turistica":
 
     st.header(
         "Analisi storica degli eventi sportivi"
@@ -1274,15 +1334,14 @@ elif pagina == "Analisi storica sportiva":
 
             if data:
 
-                eventi["_data"] = pd.to_datetime(
-                    eventi[data],
-                    errors="coerce",
-                    dayfirst=True
-                )
-
-                eventi = eventi[
-                    eventi._data.dt.year >= 2022
-                ]
+                eventi["_data"] = date_eventi(eventi[data])
+                senza_data = eventi["_data"].isna()
+                if senza_data.any():
+                    st.warning(f"{senza_data.sum()} righe hanno una data iniziale mancante o non leggibile: restano consultabili, ma non sono collocabili nel calendario.")
+                fine = trova_colonna(eventi, "Data fine", "data_fine", "end_date")
+                termine = date_eventi(eventi[fine]) if fine else eventi["_data"]
+                termine = termine.fillna(eventi["_data"])
+                eventi = eventi[senza_data | (termine >= pd.Timestamp("2022-01-01"))].copy()
 
             if area and regione != "Italia":
 
@@ -1314,6 +1373,18 @@ elif pagina == "Analisi storica sportiva":
                 eventi = eventi[
                     eventi[sport].isin(scelti)
                 ]
+
+            if nome:
+                ricerca = st.text_input("Cerca un evento", key="cerca_evento")
+                if ricerca.strip():
+                    eventi = eventi[eventi[nome].astype(str).str.contains(ricerca.strip(), case=False, regex=False, na=False)]
+            if data and not eventi.empty:
+                anni = sorted(eventi["_data"].dropna().dt.year.unique().tolist())
+                selezione_anni = st.multiselect("Anno di inizio evento", anni, default=anni)
+                eventi = eventi[eventi["_data"].isna() | eventi["_data"].dt.year.isin(selezione_anni)]
+            if sport:
+                # Esclusione già concordata nel progetto.
+                eventi = eventi[~eventi[sport].astype(str).str.casefold().eq("sci di fondo")]
 
             if identificativo:
 
@@ -1365,13 +1436,27 @@ elif pagina == "Analisi storica sportiva":
 
                 grafico(fig, 330)
 
-            tabella(
-                eventi.drop(
-                    columns=["_data"],
-                    errors="ignore"
-                ),
-                "event_master_filtrato.csv"
-            )
+            st.caption("Il grafico conta righe territoriali: un evento multisede può comparire in più regioni.")
+            if nome and not eventi.empty:
+                st.subheader("Scheda evento")
+                # Raggruppamento esplicito; niente fusione automatica tra edizioni.
+                chiavi = eventi[nome].fillna("Evento senza nome").astype(str)
+                if data:
+                    chiavi = chiavi + " · " + eventi["_data"].dt.strftime("%d/%m/%Y").fillna("data non disponibile")
+                if identificativo:
+                    chiavi = chiavi + " · ID " + eventi[identificativo].astype("string").fillna("non disponibile")
+                scelta_evento = st.selectbox("Evento e relativa edizione", sorted(chiavi.unique()))
+                dettaglio = eventi.loc[chiavi.eq(scelta_evento)].drop(columns=["_data"], errors="ignore")
+                st.dataframe(dettaglio, use_container_width=True, hide_index=True)
+                with st.expander("Come leggere attendance e qualità del dato"):
+                    st.write("**Persone / visitatori unici:** persone distinte, se documentate dalla fonte. **Ingressi cumulativi:** accessi che possono includere la stessa persona più volte. **Biglietti:** non equivalgono automaticamente a persone distinte.")
+                    st.write("**EQUIVALENTE:** proxy eventualmente già calcolata come ingressi cumulativi divisi per giorni; non è una stima di visitatori unici. Questa app conserva i valori del master e non applica nuove conversioni.")
+                    st.write("Per eventi multisede consulta le singole righe territoriali, la fonte e il metodo di ripartizione. Non sommare indicatori con unità diverse.")
+            with st.expander("Catalogo completo filtrato", expanded=True):
+                tabella(
+                    eventi.drop(columns=["_data"], errors="ignore"),
+                    "event_master_filtrato.csv"
+                )
 
         else:
 
@@ -1392,6 +1477,8 @@ elif pagina == "Analisi storica sportiva":
             "è uno screening esplorativo."
         )
 
+        st.latex(r"\text{Incidenza teorica (\%)} = 100 \times \frac{\text{pernottamenti teorici attribuiti al mese e alla regione}}{\text{guest nights osservate nello stesso mese e regione}}")
+        st.info("Superare il 2% indica un evento da approfondire, non un effetto dimostrato né significatività statistica. I risultati sono letti dai file esistenti, senza ricalcolare le ipotesi.")
         st.caption(
             "Preset discussi: 5%, 15%, 25%, 40%, 60%. "
             "Non equivalgono a prenotazioni aggiuntive osservate."
@@ -1468,6 +1555,8 @@ elif pagina == "Analisi storica sportiva":
 
                 screen["incidenza_pct"] = incidenza
 
+                if incidenza.isna().any():
+                    st.warning(f"{incidenza.isna().sum()} rapporti mancanti o non numerici esclusi dal conteggio sopra soglia.")
                 st.metric(
                     "Righe ≥ 2%",
                     numero(
@@ -1594,6 +1683,27 @@ elif pagina == "Analisi storica sportiva":
             "confronto_regionale.csv"
         )
 
+        if FILES["eventi"].is_file():
+            catalogo = leggi_excel(str(FILES["eventi"])).copy()
+            ci = trova_colonna(catalogo, "Data inizio", "data_inizio", "start_date")
+            cf = trova_colonna(catalogo, "Data fine", "data_fine", "end_date")
+            cr = trova_colonna(catalogo, "Codici NUTS2", "nuts2_code", "nuts2")
+            if ci and cr:
+                inizio = date_eventi(catalogo[ci])
+                fine = date_eventi(catalogo[cf]).fillna(inizio) if cf else inizio
+                primo = pd.Timestamp(year=anno, month=mese, day=1)
+                ultimo = primo + pd.offsets.MonthEnd(0)
+                maschera = (catalogo[cr].astype(str).str.contains(scelta_reg, regex=False, na=False)
+                            & inizio.le(ultimo) & fine.ge(primo) & fine.ge(inizio))
+                selezionati = catalogo.loc[maschera].copy()
+                if not selezionati.empty:
+                    da = inizio.loc[maschera].clip(lower=primo)
+                    a = fine.loc[maschera].clip(upper=ultimo)
+                    selezionati["Giorni evento nel mese"] = (a - da).dt.days + 1
+                st.subheader("Eventi del catalogo presenti nel mese")
+                st.caption("Inclusi anche gli eventi iniziati nel mese precedente. I giorni misurano esposizione, non pernottamenti aggiuntivi.")
+                tabella(selezionati)
+
         if FILES["mesi_eventi"].is_file():
 
             em = leggi_csv(
@@ -1664,6 +1774,10 @@ elif pagina == "Forecast 2026–2030":
         "Forecast 2026–2030 · storico dal 2022"
     )
 
+    st.info("I tre scenari rappresentano ipotesi alternative, non intervalli di confidenza. Non includono incrementi sportivi aggiunti automaticamente.")
+    with st.expander("Ipotesi e lettura delle previsioni"):
+        st.write("Stagionalità 2025; tasso iniziale composto al 50% dalla componente nazionale e al 50% da quella regionale; tre ipotesi di rallentamento. I valori sono caricati dai CSV già prodotti.")
+        st.write("Le previsioni provinciali ripartiscono quelle regionali con quote 2025 costanti: non sono modelli indipendenti per provincia. Lo storico provinciale resta annuale.")
     attivi = st.multiselect(
         "Scenari nel grafico principale",
         SCENARI,
@@ -1694,6 +1808,9 @@ elif pagina == "Forecast 2026–2030":
             nomi_prov[provincia] + " · NUTS3 annuale"
         )
 
+        if not x:
+            st.warning("Nessun dato storico per il territorio selezionato.")
+            st.stop()
         for s in attivi:
 
             fig.add_trace(
@@ -1775,6 +1892,9 @@ elif pagina == "Forecast 2026–2030":
             ) + " · NUTS2 mensile"
         )
 
+        if not x:
+            st.warning("Nessun dato storico per il territorio selezionato.")
+            st.stop()
         for s in attivi:
 
             fig.add_trace(
@@ -1800,6 +1920,12 @@ elif pagina == "Forecast 2026–2030":
     # SERIE OSSERVATA
     # --------------------------------------------------------
 
+    if not x:
+        st.warning("Storico non disponibile per la selezione corrente.")
+        st.stop()
+    fig.add_shape(type="line", x0=x[-1], x1=x[-1], y0=0, y1=1, yref="paper",
+                  line=dict(color=ACCENTO, width=1, dash="dot"))
+    st.caption("La linea verticale segna l’ultima osservazione. Le linee tratteggiate rappresentano le previsioni.")
     fig.add_trace(
         go.Scatter(
             x=x,
@@ -2033,6 +2159,14 @@ else:
         )
     ]
 
+    for nome_df, dataset, chiave in [
+        ("Master NUTS2", reg, ["nuts2_code", "year", "month"]),
+        ("Master NUTS3", prov, ["nuts3_code", "year"]),
+        ("Forecast NUTS2", fr, ["nuts2_code", "year", "month"]),
+        ("Forecast NUTS3", fp, ["nuts3_code", "year"]),
+    ]:
+        risultati.append((f"{nome_df}: chiavi univoche", not dataset.duplicated(chiave).any()))
+    st.caption(f"Ultimo mese osservato regionale: {reg['data'].max():%m/%Y}. Ultimo anno provinciale: {prov['year'].max()}.")
     for s in SCENARI:
 
         r = (
@@ -2101,7 +2235,9 @@ else:
 
     st.caption(
         "Backtest storici documentati, "
-        "non ricalcolati nell'app."
+        "non ricalcolati nell'app. I campioni indicati non sono tutti identici: "
+        "non costituiscono una classifica omogenea dei modelli. "
+        "L’errore storico non garantisce la precisione delle proiezioni al 2030."
     )
 
     tabella(
