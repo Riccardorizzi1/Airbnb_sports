@@ -1,51 +1,53 @@
-# ============================================================
-# AIRBNB&SPORTS — SBL CONSULTANCY
-# File principale: app.py
-# ============================================================
+# AIRBNB&SPORTS
+# app.py — Streamlit + Kepler.gl
+#
+# Dipendenze:
+# streamlit
+# pandas
+# plotly
+# openpyxl
+# keplergl
 
 from pathlib import Path
 from urllib.request import Request, urlopen
 import base64
 import html
 import json
+import math
 import re
+import tempfile
 import unicodedata
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
+try:
+    from keplergl import KeplerGl
+except ImportError:
+    KeplerGl = None
+
 
 # ============================================================
-# 1. CONFIGURAZIONE
+# CONFIGURAZIONE
 # ============================================================
 
 st.set_page_config(
-    page_title="Airbnb&Sports | SBL Consultancy",
+    page_title="Airbnb&Sports",
     page_icon="🏟️",
     layout="wide",
 )
 
 ROOT = Path(__file__).resolve().parent
-VERSIONE = "v4.0 · Simulatore eventi"
+VERSIONE = "v4.1 · Eventi e simulazione"
 SITO_AZIENDA = "https://www.sblconsultancy.it/"
 
 SCENARI = ["Prudente", "Intermedio", "Espansivo"]
-
 COLORI = {
     "Prudente": "#249784",
     "Intermedio": "#DC813F",
     "Espansivo": "#C94F7C",
-}
-
-PRESET = {
-    "Molto basso · 5%": 5,
-    "Basso · 15%": 15,
-    "Medio · 25%": 25,
-    "Alto · 40%": 40,
-    "Molto alto · 60%": 60,
 }
 
 PAGINE = [
@@ -60,9 +62,8 @@ PAGINE = [
 def file_dati(nome):
     for cartella in (ROOT, ROOT / "output_eurostat"):
         percorso = cartella / nome
-        if percorso.is_file():
+        if percorso.exists():
             return percorso
-
     return ROOT / nome
 
 
@@ -74,92 +75,80 @@ FILES = {
     "eventi": file_dati(
         "AirbnbSports_Event_Master_Simone_Visitatori.xlsx"
     ),
-    "screening": file_dati("screening_eventi_completo.csv"),
-    "mesi_eventi": file_dati("screening_regioni_mesi_completo.csv"),
 }
 
+SCREENING = [
+    "screening_eventi_completo.csv",
+    "screening_regioni_mesi_completo.csv",
+    "screening_eventi_equivalenti.csv",
+    "screening_regioni_mesi_equivalenti.csv",
+    "screening_pernottamenti_5_scenari_notti.csv",
+    "screening_pernottamenti_5_scenari.csv",
+    "screening_2pct.csv",
+    "event_exposure_monthly.csv",
+]
+
 
 # ============================================================
-# 2. FUNZIONI DI SUPPORTO
+# FUNZIONI GENERALI
 # ============================================================
 
-def normalizza(testo):
-    testo = unicodedata.normalize("NFKD", str(testo))
-    testo = "".join(
-        carattere
-        for carattere in testo
-        if not unicodedata.combining(carattere)
-    )
+def normalizza(valore):
+    testo = unicodedata.normalize("NFKD", str(valore))
+    testo = "".join(c for c in testo if not unicodedata.combining(c))
     return re.sub(r"[^a-z0-9]", "", testo.lower())
 
 
-def trova_colonna(df, *nomi):
-    disponibili = {
-        normalizza(colonna): colonna
-        for colonna in df.columns
-    }
-
-    for nome in nomi:
-        risultato = disponibili.get(normalizza(nome))
-        if risultato is not None:
-            return risultato
-
-    return None
+def testo(valore):
+    if pd.isna(valore):
+        return ""
+    return str(valore).strip()
 
 
 def numero(valore, decimali=0):
     if pd.isna(valore):
-        return "—"
-
+        return "n.d."
     return (
         f"{float(valore):,.{decimali}f}"
-        .replace(",", "X")
+        .replace(",", "§")
         .replace(".", ",")
-        .replace("X", ".")
+        .replace("§", ".")
     )
 
 
-def percentuale(valore, segno=True):
-    if pd.isna(valore):
-        return "—"
-
-    formato = (
-        f"{float(valore):+.2f}%"
-        if segno
-        else f"{float(valore):.2f}%"
-    )
-
-    return formato.replace(".", ",")
+def percentuale(valore):
+    return "n.d." if pd.isna(valore) else f"{numero(valore, 1)}%"
 
 
 def numero_dato(valore):
-    """
-    Legge numeri già numerici o stringhe semplici.
-    Intervalli, 'oltre', '~' e testo non vengono convertiti
-    automaticamente in valori puntuali.
-    """
+    """Legge numeri; non inventa valori da intervalli o descrizioni."""
     if pd.isna(valore):
         return float("nan")
 
     if isinstance(valore, (int, float)):
-        return float(valore)
+        return float(valore) if math.isfinite(float(valore)) else float("nan")
 
-    testo = str(valore).strip()
-    testo = testo.replace("\u00a0", "").replace(" ", "")
+    s = str(valore).strip().replace("\u00a0", "").replace(" ", "")
+    s = s.replace("'", "")
 
-    if not testo:
+    if not re.fullmatch(r"[+-]?\d+(?:[.,]\d+)*", s):
         return float("nan")
 
-    if re.fullmatch(r"-?\d{1,3}(\.\d{3})+(,\d+)?", testo):
-        testo = testo.replace(".", "").replace(",", ".")
+    if "." in s and "," in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif re.fullmatch(r"[+-]?\d{1,3}(?:\.\d{3})+", s):
+        s = s.replace(".", "")
+    elif "," in s:
+        s = s.replace(",", ".")
 
-    elif re.fullmatch(r"-?\d{1,3}(,\d{3})+(\.\d+)?", testo):
-        testo = testo.replace(",", "")
-
-    elif "," in testo and "." not in testo:
-        testo = testo.replace(",", ".")
-
-    return pd.to_numeric(testo, errors="coerce")
+    try:
+        risultato = float(s)
+        return risultato if math.isfinite(risultato) else float("nan")
+    except ValueError:
+        return float("nan")
 
 
 def data_singola(valore):
@@ -167,193 +156,149 @@ def data_singola(valore):
         return pd.NaT
 
     if isinstance(valore, (int, float)):
-        if 20000 < valore < 80000:
-            return pd.to_datetime(
-                valore,
-                unit="D",
-                origin="1899-12-30",
-                errors="coerce",
-            )
+        if 20000 <= float(valore) <= 80000:
+            return (
+                pd.Timestamp("1899-12-30")
+                + pd.to_timedelta(float(valore), unit="D")
+            ).normalize()
         return pd.NaT
 
-    testo = str(valore).strip()
-    iso = bool(re.match(r"^\d{4}-\d{2}-\d{2}", testo))
+    s = str(valore).strip()
+    iso = bool(re.match(r"^\d{4}-\d{2}-\d{2}", s))
+    d = pd.to_datetime(s, errors="coerce", dayfirst=not iso)
 
-    risultato = pd.to_datetime(
-        testo,
-        dayfirst=not iso,
-        errors="coerce",
-    )
-
-    if pd.isna(risultato):
+    if pd.isna(d):
         return pd.NaT
+    if d.tzinfo is not None:
+        d = d.tz_localize(None)
 
-    return pd.Timestamp(risultato).tz_localize(None).normalize()
+    return d.normalize()
 
 
-def date_eventi(serie):
-    return pd.to_datetime(
-        serie.map(data_singola),
-        errors="coerce",
-    )
+def trova_colonna(df, *nomi):
+    disponibili = {normalizza(c): c for c in df.columns}
+    for nome in nomi:
+        if normalizza(nome) in disponibili:
+            return disponibili[normalizza(nome)]
+    return None
 
 
 @st.cache_data(show_spinner=False)
-def leggi_csv(percorso):
-    df = pd.read_csv(
-        percorso,
-        encoding="utf-8-sig",
-        low_memory=False,
-    )
-
+def leggi_csv(percorso, modifica):
+    df = pd.read_csv(percorso, encoding="utf-8-sig")
     if len(df.columns) == 1 and ";" in str(df.columns[0]):
-        df = pd.read_csv(
-            percorso,
-            sep=";",
-            encoding="utf-8-sig",
-            low_memory=False,
-        )
-
+        df = pd.read_csv(percorso, encoding="utf-8-sig", sep=";")
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
 
 @st.cache_data(show_spinner=False)
-def leggi_excel(percorso):
-    df = pd.read_excel(percorso, sheet_name=0)
+def fogli_excel(percorso, modifica):
+    with pd.ExcelFile(percorso) as libro:
+        return libro.sheet_names
+
+
+@st.cache_data(show_spinner=False)
+def leggi_excel(percorso, modifica, foglio):
+    df = pd.read_excel(percorso, sheet_name=foglio)
     df.columns = [str(c).strip() for c in df.columns]
     return df
+
+
+def carica_csv(percorso):
+    return leggi_csv(str(percorso), percorso.stat().st_mtime)
 
 
 def prepara_tabella(df):
-    """
-    Modifica soltanto la copia visualizzata/esportata.
-    Non modifica i dati usati nei calcoli.
-    """
     risultato = df.copy()
 
-    for colonna in risultato.columns:
-        serie = risultato[colonna]
-
-        if pd.api.types.is_object_dtype(serie):
-            risultato[colonna] = serie.map(
-                lambda x: (
-                    pd.NA
-                    if isinstance(x, str)
-                    and x.strip().lower() in {
-                        "", "nan", "none", "nat", "null", "<na>"
-                    }
-                    else x
-                )
+    for col in risultato.columns:
+        if pd.api.types.is_datetime64_any_dtype(risultato[col]):
+            risultato[col] = risultato[col].dt.strftime("%d/%m/%Y")
+        elif risultato[col].dtype == object:
+            risultato[col] = risultato[col].map(
+                lambda x: pd.NA
+                if isinstance(x, str)
+                and x.strip().lower() in ("", "nan", "none", "nat", "null")
+                else x
             )
 
-    risultato = risultato.dropna(axis=1, how="all")
-
-    for colonna in risultato.columns:
-        serie = risultato[colonna]
-        nome = normalizza(colonna)
-
-        nome_data = nome in {
-            "data",
-            "datainizio",
-            "datafine",
-            "startdate",
-            "enddate",
-            "date",
-            "inizio",
-            "fine",
-            "meseosservazione",
-        }
-
-        if pd.api.types.is_datetime64_any_dtype(serie):
-            risultato[colonna] = (
-                serie.dt.strftime("%d/%m/%Y")
-                .fillna("")
-            )
-
-        elif nome_data and not pd.api.types.is_numeric_dtype(serie):
-            convertita = date_eventi(serie)
-            maschera = convertita.notna()
-
-            if maschera.any():
-                visualizzata = serie.astype("string").fillna("")
-                visualizzata.loc[maschera] = (
-                    convertita.loc[maschera]
-                    .dt.strftime("%d/%m/%Y")
+            if normalizza(col) in (
+                "datainizio", "datafine", "startdate", "enddate", "data"
+            ):
+                originali = risultato[col]
+                date = originali.map(data_singola)
+                risultato[col] = originali.where(
+                    date.isna(), date.dt.strftime("%d/%m/%Y")
                 )
-                risultato[colonna] = visualizzata
 
-    return risultato
+    return risultato.dropna(axis=1, how="all")
 
 
-def tabella(df, nome=None):
-    visualizzata = prepara_tabella(df)
+def tabella(df, nome, altezza=320):
+    pulita = prepara_tabella(df)
 
-    if visualizzata.empty:
-        st.info("Nessuna riga disponibile per questa selezione.")
+    if pulita.empty:
+        st.info("Nessuna riga per questa selezione.")
         return
 
     st.dataframe(
-        visualizzata,
-        hide_index=True,
+        pulita,
         use_container_width=True,
+        hide_index=True,
+        height=min(altezza, 38 + 35 * len(pulita)),
     )
 
-    if nome:
-        st.download_button(
-            "Scarica CSV",
-            visualizzata.to_csv(
-                index=False,
-                sep=";",
-            ).encode("utf-8-sig"),
-            file_name=nome,
-            mime="text/csv",
-            key=f"download_{nome}",
-        )
+    st.download_button(
+        "Scarica CSV",
+        pulita.to_csv(index=False, sep=";").encode("utf-8-sig"),
+        file_name=nome,
+        mime="text/csv",
+        key=f"download_{nome}",
+    )
 
 
-def grafico(fig, altezza=420):
+def grafico(fig, altezza=340):
     fig.update_layout(
         height=altezza,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font_color=TESTO,
-        hovermode="x unified",
-        margin=dict(l=15, r=15, t=45, b=20),
+        font=dict(color=TESTO, size=12),
+        margin=dict(l=12, r=12, t=30, b=20),
         legend=dict(
             orientation="h",
-            y=1.14,
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
         ),
+        hovermode="x unified",
     )
+    fig.update_xaxes(showgrid=False, automargin=True)
+    fig.update_yaxes(gridcolor=BORDO, automargin=True)
+    st.plotly_chart(fig, use_container_width=True)
 
-    fig.update_xaxes(
-        gridcolor="rgba(120,150,170,0.12)"
-    )
 
-    fig.update_yaxes(
-        gridcolor="rgba(120,150,170,0.20)",
-        tickformat=",~s",
-    )
+def somma_completa(serie):
+    """Un aggregato con valori mancanti resta non disponibile."""
+    if serie.empty or serie.isna().any():
+        return float("nan")
+    return serie.sum()
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
+
+def aggrega(df, gruppi, campo):
+    return (
+        df.groupby(gruppi, dropna=False)[campo]
+        .agg(somma_completa)
+        .reset_index()
     )
 
 
 # ============================================================
-# 3. LOGO AZIENDALE CLICCABILE
+# LOGO E STILE
 # ============================================================
 
-def trova_logo():
-    estensioni = {
-        ".png",
-        ".svg",
-        ".jpg",
-        ".jpeg",
-        ".webp",
-    }
-
+def mostra_logo():
     cartelle = [
         ROOT,
         ROOT / "assets",
@@ -361,2952 +306,2005 @@ def trova_logo():
         ROOT / "img",
         ROOT / "output_eurostat",
     ]
-
-    for cartella in cartelle:
-        if not cartella.is_dir():
-            continue
-
-        for percorso in cartella.iterdir():
-            if (
-                percorso.is_file()
-                and percorso.stem.lower() == "logo_sbl"
-                and percorso.suffix.lower() in estensioni
-            ):
-                return percorso
-
-    return None
-
-
-def mostra_logo():
-    percorso = trova_logo()
-
-    if percorso is None:
-        st.markdown(
-            f"### [SBL Consultancy]({SITO_AZIENDA})"
-        )
-        st.caption(
-            "Logo non trovato: il file deve chiamarsi "
-            "logo_sbl con estensione PNG, SVG, JPG, JPEG o WEBP."
-        )
-        return
-
-    mime = {
+    formati = {
         ".png": "image/png",
-        ".svg": "image/svg+xml",
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
         ".webp": "image/webp",
-    }[percorso.suffix.lower()]
-
-    contenuto = base64.b64encode(
-        percorso.read_bytes()
-    ).decode("ascii")
-
-    st.markdown(
-        f"""
-        <a href="{SITO_AZIENDA}"
-           target="_blank"
-           rel="noopener noreferrer"
-           aria-label="Visita il sito di SBL Consultancy"
-           style="display:block; margin-bottom:18px;">
-            <img
-                src="data:{mime};base64,{contenuto}"
-                alt="SBL Consultancy"
-                style="
-                    display:block;
-                    max-width:260px;
-                    width:100%;
-                    height:auto;
-                    object-fit:contain;
-                "
-            />
-        </a>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# ============================================================
-# 4. MAPPA CON SFONDO GEOGRAFICO
-# ============================================================
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def confini_nuts(livello):
-    url = (
-        "https://gisco-services.ec.europa.eu/"
-        "distribution/v2/nuts/geojson/"
-        f"NUTS_RG_20M_2024_4326_LEVL_{livello}.geojson"
-    )
-
-    richiesta = Request(
-        url,
-        headers={"User-Agent": "Mozilla/5.0"},
-    )
-
-    with urlopen(richiesta, timeout=35) as risposta:
-        geo = json.load(risposta)
-
-    features = [
-        f
-        for f in geo.get("features", [])
-        if str(
-            f.get("properties", {}).get("NUTS_ID", "")
-        ).startswith("IT")
-        and len(
-            str(f.get("properties", {}).get("NUTS_ID", ""))
-        ) == livello + 2
-    ]
-
-    if not features:
-        raise ValueError(
-            "Confini territoriali italiani non disponibili."
-        )
-
-    return {
-        "type": "FeatureCollection",
-        "features": features,
+        ".svg": "image/svg+xml",
     }
 
+    for cartella in cartelle:
+        if not cartella.exists():
+            continue
 
-def mappa(df, livello, codice, campo, titolo):
-    st.subheader(titolo)
-
-    dati = df[
-        [codice, "territorio", campo]
-    ].copy()
-
-    dati[codice] = dati[codice].astype(str)
-    dati[campo] = pd.to_numeric(
-        dati[campo],
-        errors="coerce",
-    )
-
-    dati = dati.dropna(subset=[campo])
-
-    if dati.empty:
-        st.info("Nessun dato disponibile per la mappa.")
-        return
-
-    if dati[codice].duplicated().any():
-        st.warning(
-            "Codici territoriali duplicati: "
-            "la mappa non viene costruita."
-        )
-        tabella(dati)
-        return
-
-    mostra = st.checkbox(
-        "Mostra mappa",
-        value=True,
-        key=f"map_{titolo}",
-    )
-
-    if mostra:
-        try:
-            geo = confini_nuts(livello)
-            valori = dati.set_index(codice).to_dict("index")
-
-            features = []
-
-            for feature in geo["features"]:
-                nuts = feature["properties"]["NUTS_ID"]
-
-                if nuts not in valori:
-                    continue
-
-                record = valori[nuts]
-
-                features.append({
-                    "type": "Feature",
-                    "geometry": feature["geometry"],
-                    "properties": {
-                        "codice": nuts,
-                        "territorio": str(record["territorio"]),
-                        "valore": float(record[campo]),
-                        "valore_testo": numero(record[campo]),
-                    },
-                })
-
-            if not features:
-                raise ValueError(
-                    "Nessuna corrispondenza fra codici "
-                    "dei dati e geometrie GISCO."
+        for percorso in sorted(cartella.iterdir()):
+            if (
+                percorso.is_file()
+                and percorso.stem.lower() == "logo_sbl"
+                and percorso.suffix.lower() in formati
+            ):
+                dati = base64.b64encode(percorso.read_bytes()).decode()
+                mime = formati[percorso.suffix.lower()]
+                st.markdown(
+                    f"""
+                    <a href="{SITO_AZIENDA}" target="_blank"
+                       rel="noopener noreferrer"
+                       aria-label="Visita il sito SBL Consultancy">
+                        <img src="data:{mime};base64,{dati}"
+                             alt="SBL Consultancy"
+                             style="display:block;width:116px;
+                                    max-width:100%;height:auto;
+                                    margin:0 0 12px 0;">
+                    </a>
+                    """,
+                    unsafe_allow_html=True,
                 )
+                return
 
-            dati_geo = {
-                "type": "FeatureCollection",
-                "features": features,
-            }
+    st.markdown(f"[**SBL CONSULTANCY**]({SITO_AZIENDA})")
 
-            contenuto_geo = json.dumps(
-                dati_geo,
-                ensure_ascii=False,
-            ).replace("</", "<\\/")
-
-            sfondo = "#071822" if dark else "#C7F1F6"
-
-            documento = """
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<style>
-html, body {
-    margin: 0;
-    width: 100%;
-    height: 100%;
-    font-family: Arial, sans-serif;
-}
-#map {
-    width: 100%;
-    height: 580px;
-    background: __SFONDO__;
-    border-radius: 14px;
-}
-.legend {
-    background: white;
-    color: #082B46;
-    padding: 10px 12px;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.15);
-    font-size: 12px;
-    line-height: 1.5;
-}
-.legend-bar {
-    width: 150px;
-    height: 12px;
-    background: linear-gradient(
-        90deg, #C2F0F6, #88D6E7, #4BAFC9, #126982, #084A68
-    );
-    margin: 6px 0;
-}
-</style>
-</head>
-<body>
-<div id="map"></div>
-<script>
-const geo = __GEO__;
-const map = L.map("map", {
-    scrollWheelZoom: false
-});
-
-L.tileLayer(
-    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    {
-        maxZoom: 18,
-        attribution: '&copy; OpenStreetMap contributors'
-    }
-).addTo(map);
-
-const values = geo.features.map(f => f.properties.valore);
-const minValue = Math.min(...values);
-const maxValue = Math.max(...values);
-const colors = ["#C2F0F6", "#88D6E7", "#4BAFC9", "#126982", "#084A68"];
-
-function colorFor(value) {
-    if (maxValue === minValue) return colors[2];
-    const scaled = (value - minValue) / (maxValue - minValue);
-    return colors[Math.min(4, Math.floor(scaled * 5))];
-}
-
-function safeText(value) {
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;");
-}
-
-const polygons = L.geoJSON(geo, {
-    style: feature => ({
-        color: "#084A68",
-        weight: 1,
-        fillColor: colorFor(feature.properties.valore),
-        fillOpacity: 0.72
-    }),
-    onEachFeature: (feature, layer) => {
-        const p = feature.properties;
-        const text =
-            "<b>" + safeText(p.territorio) + "</b><br>" +
-            safeText(p.codice) + "<br>" +
-            "Pernottamenti: " + safeText(p.valore_testo);
-
-        layer.bindTooltip(text);
-        layer.bindPopup(text);
-
-        layer.on("mouseover", () => {
-            layer.setStyle({weight: 3, fillOpacity: 0.88});
-        });
-
-        layer.on("mouseout", () => {
-            polygons.resetStyle(layer);
-        });
-    }
-}).addTo(map);
-
-map.fitBounds(polygons.getBounds(), {padding: [15, 15]});
-
-const legend = L.control({position: "bottomright"});
-legend.onAdd = function() {
-    const div = L.DomUtil.create("div", "legend");
-    div.innerHTML =
-        "<b>Pernottamenti degli ospiti</b>" +
-        '<div class="legend-bar"></div>' +
-        minValue.toLocaleString("it-IT", {maximumFractionDigits: 0}) +
-        " — " +
-        maxValue.toLocaleString("it-IT", {maximumFractionDigits: 0});
-    return div;
-};
-legend.addTo(map);
-</script>
-</body>
-</html>
-"""
-            documento = documento.replace(
-                "__SFONDO__",
-                sfondo,
-            ).replace(
-                "__GEO__",
-                contenuto_geo,
-            )
-
-            components.html(
-                documento,
-                height=600,
-                scrolling=False,
-            )
-
-            st.caption(
-                "Confini ufficiali GISCO NUTS 2024. "
-                "Sfondo OpenStreetMap. "
-                "La mappa non richiede WebGL."
-            )
-
-        except Exception as exc:
-            st.warning(
-                f"Mappa non disponibile: {exc}. "
-                "I dati rimangono consultabili nella tabella."
-            )
-
-    tabella(
-        dati.sort_values(campo, ascending=False)
-    )
-
-
-# ============================================================
-# 5. SIDEBAR E COLORI AZIENDALI
-# ============================================================
 
 with st.sidebar:
     mostra_logo()
-
-    st.markdown("## Airbnb&Sports")
+    st.markdown("### Airbnb&Sports")
     st.caption("Tourism Demand · Italia")
+    pagina = st.radio("Sezione", PAGINE)
+    dark = st.checkbox("Tema scuro", value=False)
     st.caption(VERSIONE)
 
-    st.divider()
-
-    pagina = st.radio(
-        "Sezione",
-        PAGINE,
-    )
-
-    dark = st.toggle(
-        "Modalità scura",
-        value=False,
-    )
-
-    st.divider()
-
-
 if dark:
-    SIDE = ("#071F31", "#0E4058", "#126982")
-    BG = ("#071822", "#0C2B39", "#10475B")
-    CARD = "#102D3B"
     TESTO = "#F3FAFC"
+    SECONDARIO = "#D3E5EC"
     BORDO = "#315462"
-    OMBRA = "rgba(0,0,0,.28)"
-    ACCENTO = "#6DDDEB"
-
+    SFONDO = "linear-gradient(100deg,#071822 0%,#0C2B39 47%,#10475B 100%)"
+    SIDE = "linear-gradient(180deg,#071F31 0%,#0E4058 52%,#126982 100%)"
+    CARD = "#102D3B"
 else:
-    SIDE = ("#153F57", "#17627E", "#259BBA")
-    BG = ("#C7F1F6", "#9FE5F0", "#5BC6E2")
-    CARD = "#FDFEFF"
     TESTO = "#082B46"
-    BORDO = "#D4E7EC"
-    OMBRA = "rgba(8,43,70,.10)"
-    ACCENTO = "#0E718F"
-
+    SECONDARIO = "#254A5D"
+    BORDO = "#B5D8E1"
+    SFONDO = "linear-gradient(100deg,#C7F1F6 0%,#9FE5F0 47%,#5BC6E2 100%)"
+    SIDE = "linear-gradient(180deg,#153F57 0%,#17627E 52%,#259BBA 100%)"
+    CARD = "#FDFEFF"
 
 st.markdown(
     f"""
-<style>
-header[data-testid="stHeader"] {{
-    background: transparent !important;
-}}
-
-section[data-testid="stSidebar"] {{
-    min-width: 340px !important;
-    width: 340px !important;
-    background: linear-gradient(
-        180deg,
-        {SIDE[0]},
-        {SIDE[1]} 52%,
-        {SIDE[2]}
-    ) !important;
-}}
-
-section[data-testid="stSidebar"] * {{
-    color: white !important;
-}}
-
-.stApp,
-[data-testid="stAppViewContainer"],
-[data-testid="stMain"] {{
-    background: linear-gradient(
-        100deg,
-        {BG[0]},
-        {BG[1]} 47%,
-        {BG[2]}
-    ) !important;
-    color: {TESTO} !important;
-}}
-
-.block-container {{
-    max-width: 1550px !important;
-    padding: 2rem 2.5rem 3.4rem !important;
-}}
-
-[data-testid="stMain"] h1,
-[data-testid="stMain"] h2,
-[data-testid="stMain"] h3,
-[data-testid="stMain"] p,
-[data-testid="stMain"] label {{
-    color: {TESTO} !important;
-}}
-
-[data-testid="stMetric"] {{
-    background: {CARD} !important;
-    border: 1px solid {BORDO} !important;
-    border-radius: 16px !important;
-    padding: 1rem 1.2rem !important;
-    box-shadow: 0 5px 14px {OMBRA} !important;
-    min-height: 115px;
-}}
-
-[data-testid="stMetric"] * {{
-    color: {TESTO} !important;
-}}
-
-[data-testid="stDataFrame"],
-[data-testid="stExpander"] {{
-    border: 1px solid {BORDO} !important;
-    border-radius: 14px !important;
-    overflow: hidden;
-}}
-
-section[data-testid="stSidebar"] [data-baseweb="select"] * {{
-    color: #082B46 !important;
-}}
-
-section[data-testid="stSidebar"] [data-baseweb="select"] > div {{
-    background: #FDFEFF !important;
-}}
-</style>
-""",
+    <style>
+    .stApp {{
+        background: {SFONDO};
+        color: {TESTO};
+    }}
+    .block-container {{
+        max-width: 1320px;
+        padding-top: 1.4rem;
+        padding-bottom: 2rem;
+        padding-left: 1.6rem;
+        padding-right: 1.6rem;
+    }}
+    [data-testid="stSidebar"] {{
+        background: {SIDE};
+        min-width: 260px;
+        max-width: 280px;
+    }}
+    [data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
+        padding-top: 0.5rem;
+    }}
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {{
+        color: #FFFFFF !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {{
+        color: #E2F0F5 !important;
+    }}
+    h1 {{font-size: 1.8rem !important; padding-bottom: 0.3rem !important;}}
+    h2 {{font-size: 1.35rem !important;}}
+    h3 {{font-size: 1.08rem !important;}}
+    p, label, .stMarkdown {{font-size: 0.92rem;}}
+    [data-testid="stMain"] h1,
+    [data-testid="stMain"] h2,
+    [data-testid="stMain"] h3,
+    [data-testid="stMain"] p,
+    [data-testid="stMain"] label {{
+        color: {TESTO};
+    }}
+    [data-testid="stCaptionContainer"] p {{
+        color: {SECONDARIO} !important;
+        font-size: 0.82rem !important;
+    }}
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div {{
+        background: #F7FAFC !important;
+        border-color: #C8DDE5 !important;
+        color: #082B46 !important;
+        min-height: 36px !important;
+        border-radius: 8px !important;
+    }}
+    [data-testid="stSelectbox"] [data-baseweb="select"] *,
+    [data-testid="stMultiSelect"] [data-baseweb="select"] * {{
+        color: #082B46 !important;
+        -webkit-text-fill-color: #082B46 !important;
+        font-size: 0.86rem !important;
+    }}
+    [data-baseweb="popover"] *,
+    [role="listbox"] *,
+    [role="option"] * {{
+        color: #082B46 !important;
+        -webkit-text-fill-color: #082B46 !important;
+    }}
+    [data-baseweb="popover"] [role="listbox"],
+    [role="option"] {{
+        background-color: #F7FAFC !important;
+    }}
+    [data-baseweb="tag"] {{
+        background-color: #D8EDF3 !important;
+        border-radius: 5px !important;
+    }}
+    [data-testid="stTextInput"] input,
+    [data-testid="stNumberInput"] input,
+    [data-testid="stDateInput"] input {{
+        color: #082B46 !important;
+        -webkit-text-fill-color: #082B46 !important;
+        background: #F7FAFC !important;
+        font-size: 0.86rem !important;
+    }}
+    [data-testid="stMetric"] {{
+        background: {CARD};
+        border: 1px solid {BORDO};
+        border-radius: 12px;
+        padding: 12px 14px;
+    }}
+    [data-testid="stMetricValue"] {{
+        color: {TESTO};
+        font-size: 1.65rem !important;
+    }}
+    [data-testid="stMetricLabel"] p {{
+        font-size: 0.82rem !important;
+    }}
+    [data-testid="stVerticalBlock"] {{
+        gap: 0.8rem;
+    }}
+    .stButton > button,
+    .stDownloadButton > button {{
+        min-height: 34px;
+        color: #082B46 !important;
+        background: #F7FAFC;
+        border: 1px solid #B5D8E1;
+        border-radius: 8px;
+    }}
+    .stButton > button p,
+    .stDownloadButton > button p {{
+        color: #082B46 !important;
+        font-size: 0.84rem !important;
+    }}
+    button[data-baseweb="tab"] {{
+        font-size: 0.87rem;
+    }}
+    </style>
+    """,
     unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# 6. CARICAMENTO DATI PRINCIPALI
+# CARICAMENTO DATI TURISTICI
 # ============================================================
 
-obbligatori = ["reg", "prov", "fr", "fp"]
+SCHEMI = {
+    "reg": [
+        "year", "month", "nuts2_code", "nuts2_name", "guest_nights_total"
+    ],
+    "prov": [
+        "year", "nuts3_code", "nuts3_name", "nuts2_code", "guest_nights_total"
+    ],
+    "fr": [
+        "year", "month", "nuts2_code",
+        "gn_prudente", "gn_intermedio", "gn_espansivo"
+    ],
+    "fp": [
+        "year", "nuts3_code", "nuts2_code",
+        "forecast_prudente", "forecast_intermedio", "forecast_espansivo"
+    ],
+}
 
-mancanti = [
-    FILES[k].name
-    for k in obbligatori
-    if not FILES[k].is_file()
-]
+CHIAVI = {
+    "reg": ["nuts2_code", "year", "month"],
+    "prov": ["nuts3_code", "year"],
+    "fr": ["nuts2_code", "year", "month"],
+    "fp": ["nuts3_code", "year"],
+}
 
-if mancanti:
-    st.error("Mancano questi file del progetto:")
-    st.code("\n".join(mancanti))
-    st.stop()
+DATI = {}
+ERRORI = {}
 
+for chiave, colonne in SCHEMI.items():
+    try:
+        df = carica_csv(FILES[chiave])
+        mancanti = [c for c in colonne if c not in df.columns]
+        if mancanti:
+            raise ValueError("Colonne mancanti: " + ", ".join(mancanti))
 
-try:
-    reg, prov, fr, fp = [
-        leggi_csv(str(FILES[k])).copy()
-        for k in obbligatori
-    ]
-
-    specifiche = [
-        (
-            reg,
-            ["year", "month", "nuts2_code", "nuts2_name"],
-            ["guest_nights_total"],
-        ),
-        (
-            prov,
-            ["year", "nuts3_code", "nuts3_name", "nuts2_code"],
-            ["guest_nights_total"],
-        ),
-        (
-            fr,
-            ["year", "month", "nuts2_code"],
-            [f"gn_{s.lower()}" for s in SCENARI],
-        ),
-        (
-            fp,
-            ["year", "nuts3_code", "nuts2_code"],
-            [f"forecast_{s.lower()}" for s in SCENARI],
-        ),
-    ]
-
-    for df, chiavi, misure in specifiche:
-        assenti = sorted(
-            set(chiavi + misure) - set(df.columns)
-        )
-
-        if assenti:
-            raise ValueError(
-                "Colonne mancanti: " + ", ".join(assenti)
-            )
-
-        df["year"] = pd.to_numeric(
-            df["year"],
-            errors="raise",
-        ).astype(int)
-
-        for c in df.columns:
-            if (
-                c.startswith("guest_nights_")
-                or c.startswith("occupied_nights_")
-                or c.startswith("stays_")
-                or c in misure
+        for col in df.columns:
+            if col in ("nuts2_code", "nuts3_code"):
+                df[col] = df[col].astype("string").str.strip().str.upper()
+            elif (
+                col in ("year", "month")
+                or col.startswith("guest_nights")
+                or col.startswith("gn_")
+                or col.startswith("forecast_")
             ):
-                df[c] = pd.to_numeric(
-                    df[c],
-                    errors="coerce",
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+                df[col] = df[col].replace(
+                    [float("inf"), -float("inf")], float("nan")
                 )
 
-        for c in ["nuts2_code", "nuts3_code"]:
-            if c in df:
-                df[c] = (
-                    df[c].astype("string")
-                    .str.strip()
-                    .str.upper()
-                )
+        if df[CHIAVI[chiave]].isna().any().any():
+            raise ValueError("Sono presenti chiavi territoriali o temporali vuote.")
 
-    for df in [reg, fr]:
-        df["month"] = pd.to_numeric(
-            df["month"],
-            errors="raise",
-        ).astype(int)
-
-        df["data"] = pd.to_datetime({
-            "year": df["year"],
-            "month": df["month"],
-            "day": 1,
-        })
-
-    for df, chiavi in [
-        (reg, ["nuts2_code", "year", "month"]),
-        (prov, ["nuts3_code", "year"]),
-        (fr, ["nuts2_code", "year", "month"]),
-        (fp, ["nuts3_code", "year"]),
-    ]:
-        if df.duplicated(chiavi).any():
+        if df.duplicated(CHIAVI[chiave]).any():
             raise ValueError(
-                "Chiavi duplicate nel dataset: "
-                + ", ".join(chiavi)
+                "Chiavi duplicate: correggere il file prima di aggregare."
             )
 
-except Exception as exc:
-    st.error(f"Errore nella lettura dei dati: {exc}")
-    st.stop()
+        if "month" in df and (
+            ~df["month"].between(1, 12)
+            | df["month"].mod(1).ne(0)
+        ).any():
+            raise ValueError("Sono presenti mesi non validi.")
 
+        if df["year"].mod(1).ne(0).any():
+            raise ValueError("Sono presenti anni non interi.")
+
+        df["year"] = df["year"].astype(int)
+
+        if "month" in df:
+            df["month"] = df["month"].astype(int)
+            df["data"] = pd.to_datetime(
+                dict(year=df["year"], month=df["month"], day=1),
+                errors="coerce",
+            )
+            if df["data"].isna().any():
+                raise ValueError("Sono presenti date non valide.")
+
+        DATI[chiave] = df
+
+    except Exception as exc:
+        ERRORI[chiave] = str(exc)
+        DATI[chiave] = pd.DataFrame()
+
+reg = DATI["reg"]
+prov = DATI["prov"]
+fr = DATI["fr"]
+fp = DATI["fp"]
 
 nomi_reg = (
     reg.drop_duplicates("nuts2_code")
-    .set_index("nuts2_code")["nuts2_name"]
-    .to_dict()
+    .set_index("nuts2_code")["nuts2_name"].to_dict()
+    if not reg.empty else {}
 )
 
 nomi_prov = (
     prov.drop_duplicates("nuts3_code")
-    .set_index("nuts3_code")["nuts3_name"]
-    .to_dict()
+    .set_index("nuts3_code")["nuts3_name"].to_dict()
+    if not prov.empty else {}
 )
 
-
 with st.sidebar:
-    st.subheader("Territorio")
+    st.divider()
+    st.markdown("#### Territorio")
 
     regione = st.selectbox(
         "Regione",
-        ["Italia"] + sorted(nomi_reg),
-        format_func=lambda x: (
-            "Italia — tutte le regioni"
-            if x == "Italia"
-            else f"{nomi_reg[x]} · {x}"
+        ["Tutte"] + sorted(nomi_reg, key=lambda k: str(nomi_reg[k])),
+        format_func=lambda k: (
+            "Tutta Italia" if k == "Tutte" else str(nomi_reg[k])
         ),
     )
 
-    province_ammissibili = (
-        prov
-        if regione == "Italia"
-        else prov[prov["nuts2_code"].eq(regione)]
+    disponibili_prov = prov.copy()
+    if not prov.empty and regione != "Tutte":
+        disponibili_prov = prov[prov["nuts2_code"].eq(regione)]
+
+    codici_prov = (
+        sorted(
+            disponibili_prov["nuts3_code"].unique(),
+            key=lambda k: str(nomi_prov.get(k, k)),
+        )
+        if not disponibili_prov.empty else []
     )
 
     provincia = st.selectbox(
         "Provincia",
-        ["Tutte"] + sorted(
-            province_ammissibili["nuts3_code"]
-            .dropna()
-            .unique()
-        ),
-        format_func=lambda x: (
-            "Tutte le province"
-            if x == "Tutte"
-            else f"{nomi_prov[x]} · {x}"
+        ["Tutte"] + codici_prov,
+        format_func=lambda k: (
+            "Tutte le province" if k == "Tutte" else str(nomi_prov.get(k, k))
         ),
     )
 
-    scenario = "Intermedio"
+    st.caption(
+        "Il simulatore usa regione e mese. "
+        "Il filtro provinciale riguarda le serie annuali."
+    )
 
-    if pagina in ["Panorama nazionale", "Forecast 2026–2030"]:
-        scenario = st.selectbox(
-            "Scenario predefinito",
-            SCENARI,
-            index=1,
+
+def richiedi(chiave):
+    if DATI[chiave].empty:
+        st.error(
+            f"{FILES[chiave].name}: "
+            f"{ERRORI.get(chiave, 'nessun dato disponibile')}"
         )
-
-    if pagina in ["Panorama nazionale", "Dati e metodo"]:
-        st.caption(
-            "Questa sezione presenta il quadro nazionale."
-        )
-
-    if pagina == "Eventi e simulatore":
-        st.caption(
-            "La simulazione usa la regione e il mese. "
-            "Il filtro provinciale non disaggrega la domanda mensile."
-        )
+        st.stop()
 
 
-st.title("Airbnb&Sports")
-st.caption(
-    "SBL Consultancy · Domanda di alloggi di breve durata "
-    "prenotati tramite piattaforme online"
-)
+def filtra_territorio(df):
+    risultato = df.copy()
+    if regione != "Tutte" and "nuts2_code" in risultato:
+        risultato = risultato[risultato["nuts2_code"].eq(regione)]
+    if provincia != "Tutte" and "nuts3_code" in risultato:
+        risultato = risultato[risultato["nuts3_code"].eq(provincia)]
+    return risultato
 
 
 # ============================================================
-# 7. FUNZIONI EVENT MASTER E SIMULAZIONE
+# KEPLER.GL — CONFINI CLASSICI
 # ============================================================
 
-def selettore_colonna(
-    df,
-    etichetta,
-    candidati,
-    chiave,
-):
-    trovata = trova_colonna(df, *candidati)
-    opzioni = ["— Non disponibile —"] + list(df.columns)
+@st.cache_data(show_spinner=False, ttl=86400)
+def confini_nuts(livello, versione):
+    nome = f"NUTS_RG_20M_{versione}_4326_LEVL_{livello}.geojson"
+    locale = file_dati(nome)
 
-    indice = (
-        opzioni.index(trovata)
-        if trovata is not None
-        else 0
-    )
-
-    scelta = st.selectbox(
-        etichetta,
-        opzioni,
-        index=indice,
-        key=chiave,
-    )
-
-    return None if scelta == opzioni[0] else scelta
-
-
-def mappa_colonne_eventi(df):
-    """
-    Riconoscimento dei nomi più comuni.
-    Le associazioni restano visibili e correggibili.
-    """
-    definizioni = {
-        "nome": (
-            "Nome evento",
-            ["Evento originale", "Evento", "event_name", "nome_evento"],
-        ),
-        "id": (
-            "Identificativo evento",
-            ["event_id", "id_evento", "ID evento"],
-        ),
-        "sport": (
-            "Sport",
-            ["Sport", "sport"],
-        ),
-        "inizio": (
-            "Data di inizio",
-            ["Data inizio", "data_inizio", "start_date", "inizio"],
-        ),
-        "fine": (
-            "Data di fine",
-            ["Data fine", "data_fine", "end_date", "fine"],
-        ),
-        "nuts": (
-            "Codice NUTS2",
-            ["Codici NUTS2", "nuts2_code", "NUTS2", "codice_nuts2"],
-        ),
-        "persone": (
-            "Persone / visitatori unici documentati o stimati",
-            [
-                "Visitatori unici",
-                "visitatori_unici",
-                "Visitatori unici stimati",
-                "Visitatori unici/stimati",
-                "Visitatori unici / stimati",
-                "visitatori_unici_stimati",
-                "unique_visitors",
-            ],
-        ),
-        "valore": (
-            "Attendance / presenze originali",
-            [
-                "Presenze",
-                "Presenze totali",
-                "presenze_totali",
-                "attendance",
-                "Attendance",
-                "Presenze stimate",
-                "presenze_stimate",
-                "Valore presenze",
-                "valore_presenze",
-            ],
-        ),
-        "tipo": (
-            "Tipo dell’indicatore attendance",
-            [
-                "Tipo indicatore",
-                "tipo_indicatore",
-                "tipo_indicatore_presenze",
-                "tipo_base",
-                "Tipo di indicatore",
-                "attendance_type",
-            ],
-        ),
-        "equivalente": (
-            "Eventuale base equivalente già calcolata",
-            [
-                "base_equivalente",
-                "presenze_equivalenti",
-                "visitatori_equivalenti",
-                "equivalenti",
-                "attendance_equivalente",
-            ],
-        ),
-    }
-
-    mapping = {}
-
-    with st.expander(
-        "Colonne utilizzate: riconoscimento automatico e verifica",
-        expanded=False,
-    ):
-        st.caption(
-            "Questa associazione non cambia i file. "
-            "Se un nome non viene riconosciuto, scegli la colonna "
-            "corretta. Non associare ingressi cumulativi alla "
-            "colonna dei visitatori unici."
+    if locale.exists():
+        contenuto = json.loads(locale.read_text(encoding="utf-8"))
+    else:
+        url = (
+            "https://gisco-services.ec.europa.eu/"
+            f"distribution/v2/nuts/geojson/{nome}"
         )
+        richiesta = Request(url, headers={"User-Agent": "AirbnbSports/4.1"})
+        with urlopen(richiesta, timeout=30) as risposta:
+            contenuto = json.load(risposta)
 
-        for chiave, (etichetta, candidati) in definizioni.items():
-            mapping[chiave] = selettore_colonna(
-                df,
-                etichetta,
-                candidati,
-                f"mapping_{chiave}",
-            )
-
-    return mapping
-
-
-def costruisci_eventi(df, mapping):
-    """
-    Una riga = evento × territorio già presente nel master.
-    Non ripartisce arbitrariamente righe con più NUTS2.
-    """
-    richieste = ["nome", "sport", "inizio", "nuts"]
-
-    assenti = [
-        x
-        for x in richieste
-        if mapping.get(x) is None
+    return [
+        f for f in contenuto["features"]
+        if str(f["properties"].get("NUTS_ID", "")).startswith("IT")
     ]
 
-    if assenti:
-        return pd.DataFrame(), (
-            "Associa le colonne obbligatorie: "
-            + ", ".join(assenti)
+
+def coordinate(oggetto):
+    if (
+        isinstance(oggetto, (list, tuple))
+        and len(oggetto) >= 2
+        and isinstance(oggetto[0], (int, float))
+    ):
+        yield oggetto[0], oggetto[1]
+    elif isinstance(oggetto, (list, tuple)):
+        for elemento in oggetto:
+            yield from coordinate(elemento)
+
+
+def mappa_kepler(df, livello, codice, campo, titolo):
+    st.subheader(titolo)
+
+    if df.empty:
+        st.info("Nessun dato geografico per questa selezione.")
+        return
+
+    if KeplerGl is None:
+        st.error(
+            "Kepler.gl non è installato. "
+            "Aggiungi keplergl al file requirements.txt."
+        )
+        return
+
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        versione = st.selectbox(
+            "Versione dei confini NUTS",
+            [2024, 2021, 2016],
+            key=f"confini_{titolo}",
+        )
+    with c2:
+        strumenti = st.checkbox(
+            "Strumenti mappa", value=False, key=f"strumenti_{titolo}"
         )
 
+    st.caption(
+        "Confini NUTS: scegli la versione coerente con i codici dei dati. "
+        "Altezza della mappa: 430 px."
+    )
+
+    try:
+        valori = df.dropna(subset=[codice, campo]).copy()
+        if valori.duplicated(codice).any():
+            raise ValueError("Più valori per lo stesso territorio.")
+
+        lookup = valori.set_index(codice)[campo].to_dict()
+        nomi = nomi_reg if livello == 2 else nomi_prov
+        features = []
+        punti = []
+        abbinati = set()
+
+        for feature in confini_nuts(livello, versione):
+            nuts = feature["properties"]["NUTS_ID"]
+            if nuts not in lookup:
+                continue
+
+            abbinati.add(nuts)
+            features.append({
+                "type": "Feature",
+                "geometry": feature["geometry"],
+                "properties": {
+                    "Territorio": str(nomi.get(nuts, nuts)),
+                    "NUTS": nuts,
+                    "Valore": float(lookup[nuts]),
+                    "Pernottamenti": numero(lookup[nuts]),
+                },
+            })
+            punti.extend(coordinate(feature["geometry"]["coordinates"]))
+
+        non_abbinati = set(lookup) - abbinati
+        if non_abbinati:
+            st.warning(
+                "Codici senza confine corrispondente: "
+                + ", ".join(sorted(non_abbinati))
+            )
+
+        if not features:
+            raise ValueError("Nessun territorio abbinato ai confini selezionati.")
+
+        xs, ys = zip(*punti)
+        ampiezza = max(max(xs) - min(xs), 1.4 * (max(ys) - min(ys)), 0.1)
+        zoom = max(3.0, min(9.0, math.log2(360 / ampiezza) - 0.9))
+        data_id = "territori"
+
+        # Basemap chiara/scura senza token Mapbox.
+        stile_url = (
+            "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
+            if dark else
+            "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+        )
+
+        config = {
+            "version": "v1",
+            "config": {
+                "mapState": {
+                    "latitude": (min(ys) + max(ys)) / 2,
+                    "longitude": (min(xs) + max(xs)) / 2,
+                    "zoom": zoom,
+                    "pitch": 0,
+                    "bearing": 0,
+                    "dragRotate": False,
+                },
+                "mapStyle": {
+                    "styleType": "sbl_base",
+                    "mapStyles": {
+                        "sbl_base": {
+                            "id": "sbl_base",
+                            "label": "SBL · Base cartografica",
+                            "url": stile_url,
+                        }
+                    },
+                },
+                "visState": {
+                    "filters": [],
+                    "layers": [{
+                        "id": "confini_nuts",
+                        "type": "geojson",
+                        "config": {
+                            "dataId": data_id,
+                            "label": f"Confini NUTS{livello}",
+                            "color": [18, 105, 130],
+                            "columns": {"geojson": "_geojson"},
+                            "isVisible": True,
+                            "visConfig": {
+                                "opacity": 0.70,
+                                "strokeOpacity": 1,
+                                "thickness": 0.9,
+                                "strokeColor": [8, 43, 70],
+                                "stroked": True,
+                                "filled": True,
+                                "enable3d": False,
+                                "wireframe": False,
+                                "colorRange": {
+                                    "name": "SBL Blu",
+                                    "type": "sequential",
+                                    "category": "Custom",
+                                    "colors": [
+                                        "#C2F0F6",
+                                        "#88D6E7",
+                                        "#4BAFC9",
+                                        "#126982",
+                                        "#084A68",
+                                    ],
+                                },
+                            },
+                        },
+                        "visualChannels": {
+                            "colorField": {"name": "Valore", "type": "real"},
+                            "colorScale": "quantile",
+                            "strokeColorField": None,
+                            "strokeColorScale": "quantile",
+                            "sizeField": None,
+                            "sizeScale": "linear",
+                            "heightField": None,
+                            "heightScale": "linear",
+                        },
+                    }],
+                    "interactionConfig": {
+                        "tooltip": {
+                            "enabled": True,
+                            "fieldsToShow": {
+                                data_id: [
+                                    {"name": "Territorio", "format": None},
+                                    {"name": "NUTS", "format": None},
+                                    {"name": "Pernottamenti", "format": None},
+                                ]
+                            },
+                        }
+                    },
+                },
+            },
+        }
+
+        mappa = KeplerGl(
+            height=430,
+            show_docs=False,
+            data={
+                data_id: {
+                    "type": "FeatureCollection",
+                    "features": features,
+                }
+            },
+            config=config,
+        )
+
+        with tempfile.TemporaryDirectory() as cartella:
+            percorso = Path(cartella) / "kepler.html"
+            mappa.save_to_html(
+                file_name=str(percorso),
+                read_only=not strumenti,
+            )
+            pagina_html = percorso.read_text(encoding="utf-8")
+
+        components.html(pagina_html, height=440, scrolling=False)
+        st.caption(
+            "Confini: Eurostat/GISCO. Base: CARTO · © OpenStreetMap contributors. "
+            "La visualizzazione richiede WebGL e accesso ai servizi cartografici."
+        )
+
+    except Exception as exc:
+        st.warning(f"Mappa non disponibile: {exc}")
+
+    with st.expander("Valori della mappa"):
+        tabella(df, f"mappa_nuts{livello}.csv")
+
+
+# ============================================================
+# EVENT MASTER: LETTURA SENZA ESCLUSIONI SILENZIOSE
+# ============================================================
+
+ALIAS = {
+    "Evento": ["Evento originale", "Evento", "event_name", "nome_evento"],
+    "ID": ["event_id", "id_evento", "ID evento"],
+    "Sport": ["Sport", "disciplina"],
+    "Inizio": ["Data inizio", "data_inizio", "start_date", "inizio"],
+    "Fine": ["Data fine", "data_fine", "end_date", "fine"],
+    "Territorio": ["Codici NUTS2", "nuts2_code", "NUTS2", "codice_nuts2"],
+    "Persone": [
+        "Visitatori unici",
+        "visitatori_unici",
+        "Visitatori unici stimati",
+        "visitatori_unici_stimati",
+        "unique_visitors",
+    ],
+    "Attendance": [
+        "Presenze stimate", "Presenze", "Presenze totali",
+        "presenze_totali", "attendance", "valore_presenze",
+    ],
+    "Tipo": [
+        "Tipo indicatore", "tipo_indicatore", "tipo_base",
+        "tipo_indicatore_presenze", "attendance_type",
+    ],
+    "Equivalenti": [
+        "base_equivalente", "presenze_equivalenti",
+        "visitatori_equivalenti", "equivalenti",
+    ],
+}
+
+NATURE = [
+    "Da verificare",
+    "Persone",
+    "Presenze cumulative",
+    "Equivalenti",
+    "Biglietti",
+]
+
+
+def mappatura_master(master):
+    mappa = {}
+    with st.expander("Collegamento delle colonne del master", expanded=False):
+        st.caption(
+            "Il riconoscimento è automatico. "
+            "Puoi correggere qui il collegamento di una colonna."
+        )
+        colonne_ui = st.columns(2)
+        for i, (nome, alias) in enumerate(ALIAS.items()):
+            automatico = trova_colonna(master, *alias)
+            opzioni = ["— Non disponibile —"] + list(master.columns)
+            with colonne_ui[i % 2]:
+                scelta = st.selectbox(
+                    nome,
+                    opzioni,
+                    index=opzioni.index(automatico) if automatico else 0,
+                    key=f"colonna_master_{nome}",
+                )
+            mappa[nome] = None if scelta == opzioni[0] else scelta
+    return mappa
+
+
+def codici_nuts(valore):
+    s = testo(valore).upper()
+    return list(dict.fromkeys(re.findall(r"\bIT[A-Z0-9]{2}\b", s)))
+
+
+def natura_indicatore(valore):
+    s = normalizza(valore)
+
+    if any(x in s for x in ("bigliett", "ticket")):
+        return "Biglietti"
+    if "equivalent" in s:
+        return "Equivalenti"
+    if any(x in s for x in ("cumul", "ingress", "spettatorigiorno")):
+        return "Presenze cumulative"
+    if any(x in s for x in ("unic", "person", "partecipant", "visitator")):
+        return "Persone"
+
+    # "Presenze" da solo è ambiguo: non viene convertito automaticamente.
+    return "Da verificare"
+
+
+def prepara_eventi(master, mappa):
     righe = []
 
-    for posizione, (_, record) in enumerate(df.iterrows()):
-        nome = str(record[mapping["nome"]])
-        sport = str(record[mapping["sport"]]).strip()
+    for posizione, (_, originale) in enumerate(master.iterrows()):
+        def valore(campo):
+            col = mappa.get(campo)
+            return originale[col] if col else None
 
-        if normalizza(sport) == "scidifondo":
-            continue
+        nome = testo(valore("Evento")) or f"Riga master {posizione + 1}"
+        sport = testo(valore("Sport")) or "Sport non indicato"
+        inizio = data_singola(valore("Inizio"))
+        fine = data_singola(valore("Fine"))
 
-        inizio = data_singola(record[mapping["inizio"]])
-
-        fine = (
-            data_singola(record[mapping["fine"]])
-            if mapping.get("fine")
-            else inizio
-        )
-
-        if pd.isna(fine):
+        # Data fine assente: convenzione esplicita di evento di un giorno.
+        fine_assente = pd.isna(fine)
+        if fine_assente and pd.notna(inizio):
             fine = inizio
 
-        codici = re.findall(
-            r"\bIT[A-Z0-9]{2}\b",
-            str(record[mapping["nuts"]]).upper(),
-        )
-        codici = sorted(set(codici))
-
-        nuts = codici[0] if len(codici) == 1 else None
-
-        durata = (
-            (fine - inizio).days + 1
-            if pd.notna(inizio)
-            and pd.notna(fine)
-            and fine >= inizio
-            else None
-        )
-
-        persone = (
-            numero_dato(record[mapping["persone"]])
-            if mapping.get("persone")
-            else float("nan")
-        )
-
-        valore = (
-            numero_dato(record[mapping["valore"]])
-            if mapping.get("valore")
-            else float("nan")
-        )
-
-        equivalente = (
-            numero_dato(record[mapping["equivalente"]])
-            if mapping.get("equivalente")
-            else float("nan")
-        )
-
-        tipo_originale = (
-            str(record[mapping["tipo"]]).strip()
-            if mapping.get("tipo")
-            else ""
-        )
-        tipo = normalizza(tipo_originale)
-
-        base = float("nan")
-        categoria = "NON UTILIZZABILE"
-        metodo = "Base non disponibile o unità non identificata"
+        persone = numero_dato(valore("Persone"))
+        equivalenti = numero_dato(valore("Equivalenti"))
+        attendance = numero_dato(valore("Attendance"))
+        natura = natura_indicatore(valore("Tipo"))
 
         if pd.notna(persone) and persone >= 0:
-            base = persone
-            categoria = "PERSONE"
-            metodo = (
-                "Colonna visitatori unici/documentati/stimati"
+            volume = persone
+            natura = "Persone"
+        elif pd.notna(equivalenti) and equivalenti >= 0:
+            volume = equivalenti
+            natura = "Equivalenti"
+        else:
+            volume = attendance
+
+        identificativo = testo(valore("ID"))
+        if not identificativo:
+            identificativo = (
+                f"{normalizza(nome)}|{inizio}|{fine}|{normalizza(sport)}"
             )
 
-        elif pd.notna(equivalente) and equivalente >= 0:
-            base = equivalente
-            categoria = "EQUIVALENTE"
-            metodo = "Base equivalente già presente nel file"
+        territori = codici_nuts(valore("Territorio"))
+        if not territori:
+            territori = [testo(valore("Territorio"))]
 
-        elif pd.notna(valore) and valore >= 0:
-            if (
-                "bigliett" in tipo
-                or "ticket" in tipo
-            ):
-                metodo = (
-                    "Biglietti: nessuna conversione automatica "
-                    "in persone"
-                )
+        # Una riga multiregionale viene resa esplicita.
+        # Il riparto deve essere confermato prima di usarla nel calcolo.
+        for nuts in territori:
+            righe.append({
+                "Riga master": posizione + 1,
+                "ID evento": identificativo,
+                "Evento": nome,
+                "Sport": sport,
+                "Inizio": inizio,
+                "Fine": fine,
+                "NUTS2": nuts,
+                "Volume": volume,
+                "Natura": natura,
+                "Indicatore originale": testo(valore("Tipo")),
+                "Attendance originale": testo(valore("Attendance")),
+                "Fine assente nel master": fine_assente,
+            })
 
-            elif (
-                "equivalent" in tipo
-            ):
-                base = valore
-                categoria = "EQUIVALENTE"
-                metodo = "Indicatore già classificato equivalente"
+    if not righe:
+        return pd.DataFrame()
 
-            elif (
-                "cumulativ" in tipo
-                or "ingress" in tipo
-            ):
-                if durata and durata > 0:
-                    base = valore / durata
-                    categoria = "EQUIVALENTE"
-                    metodo = (
-                        "Proxy: ingressi / giorni dell’evento; "
-                        "non visitatori unici"
-                    )
+    eventi = pd.DataFrame(righe)
+    dimensione = eventi.groupby("ID evento")["ID evento"].transform("size")
+    eventi["Quota territoriale"] = 1.0 / dimensione
+    eventi["Riparto confermato"] = dimensione.eq(1)
 
-            elif (
-                "person" in tipo
-                or "partecipant" in tipo
-                or "visitator" in tipo
-                or "unique" in tipo
-            ):
-                base = valore
-                categoria = "PERSONE"
-                metodo = (
-                    "Attendance classificata come "
-                    "persone/partecipanti"
-                )
+    return eventi
 
+
+def verifica_eventi(eventi):
+    risultato = eventi.copy()
+    risultato["Inizio"] = risultato["Inizio"].map(data_singola)
+    risultato["Fine"] = risultato["Fine"].map(data_singola)
+    risultato["Volume"] = pd.to_numeric(risultato["Volume"], errors="coerce")
+    risultato["Quota territoriale"] = pd.to_numeric(
+        risultato["Quota territoriale"], errors="coerce"
+    )
+
+    somme = risultato.groupby("ID evento")["Quota territoriale"].agg(
+        somma_completa
+    )
+    conferme = risultato.groupby("ID evento")["Riparto confermato"].all()
+
+    basi, categorie, motivi = [], [], []
+
+    for _, r in risultato.iterrows():
         problemi = []
+        base = float("nan")
+        categoria = ""
 
-        if durata is None:
-            problemi.append("Date mancanti o incoerenti")
+        if normalizza(r["Sport"]) == "scidifondo":
+            problemi.append("Sci di fondo fuori dal perimetro analitico")
 
-        if nuts is None:
-            problemi.append(
-                "NUTS2 mancante o più NUTS2 nella stessa riga"
-            )
-        elif nuts not in nomi_reg:
-            problemi.append("NUTS2 non presente nel master Eurostat")
-
-        if pd.isna(base):
-            problemi.append(metodo)
-
-        if mapping.get("id"):
-            id_originale = record[mapping["id"]]
+        if pd.isna(r["Inizio"]) or pd.isna(r["Fine"]):
+            problemi.append("Data da verificare")
+            durata = None
+        elif r["Fine"] < r["Inizio"]:
+            problemi.append("Data fine precedente all'inizio")
+            durata = None
         else:
-            id_originale = None
+            durata = (r["Fine"] - r["Inizio"]).days + 1
 
-        if pd.isna(id_originale) or id_originale is None:
-            etichetta_data = (
-                inizio.strftime("%Y-%m-%d")
-                if pd.notna(inizio)
-                else "data_non_disponibile"
-            )
-            event_id = f"{nome}|{etichetta_data}"
+        if r["NUTS2"] not in nomi_reg:
+            problemi.append("Codice NUTS2 non abbinato ai dati turistici")
+
+        if (
+            pd.isna(r["Volume"])
+            or not math.isfinite(float(r["Volume"]))
+            or r["Volume"] < 0
+        ):
+            problemi.append("Volume mancante o non valido")
+
+        if r["Natura"] == "Persone":
+            base = r["Volume"]
+            categoria = "PERSONE"
+        elif r["Natura"] == "Equivalenti":
+            base = r["Volume"]
+            categoria = "EQUIVALENTI"
+        elif r["Natura"] == "Presenze cumulative":
+            if durata:
+                base = r["Volume"] / durata
+            categoria = "EQUIVALENTI"
+        elif r["Natura"] == "Biglietti":
+            problemi.append("Biglietti: manca una conversione documentata")
         else:
-            event_id = str(id_originale)
+            problemi.append("Natura dell'indicatore da verificare")
 
-        righe.append({
-            "riga_master": posizione,
-            "event_id": event_id,
-            "Evento": nome,
-            "Sport": sport,
-            "Data inizio": inizio,
-            "Data fine": fine,
-            "Durata giorni": durata,
-            "nuts2_code": nuts,
-            "Regione": nomi_reg.get(nuts, ""),
-            "Attendance originale": valore,
-            "Tipo indicatore originale": tipo_originale,
-            "Base simulazione": base,
-            "Categoria base": categoria,
-            "Metodo base": metodo,
-            "Utilizzabile": len(problemi) == 0,
-            "Note verifica": "; ".join(problemi),
-        })
+        quota = r["Quota territoriale"]
+        if pd.isna(quota) or not 0 <= quota <= 1:
+            problemi.append("Quota territoriale non valida")
 
-    return pd.DataFrame(righe), None
+        totale = somme.get(r["ID evento"], float("nan"))
+        if pd.isna(totale) or abs(totale - 1) > 0.00001:
+            problemi.append("Le quote dello stesso evento devono sommare a 1")
+
+        if not conferme.get(r["ID evento"], False):
+            problemi.append("Riparto o righe ripetute da confermare")
+
+        basi.append(base)
+        categorie.append(categoria)
+        motivi.append("; ".join(problemi))
+
+    risultato["Base"] = basi
+    risultato["Categoria"] = categorie
+    risultato["Verifica"] = motivi
+    risultato["Calcolabile"] = risultato["Verifica"].eq("")
+    return risultato
 
 
-def espandi_eventi_mese(eventi):
-    """
-    Ripartizione uniforme per giorni di esposizione.
-    Non ricostruisce domanda turistica giornaliera.
-    """
+def filtro_compatto(etichetta, opzioni, chiave, format_func=None):
+    """Tutti inclusi senza visualizzare centinaia di etichette."""
+    tutti = st.checkbox(
+        f"{etichetta}: tutti",
+        value=True,
+        key=f"{chiave}_tutti",
+    )
+    if tutti:
+        return list(opzioni)
+
+    kwargs = {}
+    if format_func is not None:
+        kwargs["format_func"] = format_func
+
+    return st.multiselect(
+        etichetta,
+        list(opzioni),
+        default=[],
+        key=chiave,
+        **kwargs,
+    )
+
+
+def espandi_mesi(eventi):
     righe = []
 
-    for _, evento in eventi.iterrows():
-        if not evento["Utilizzabile"]:
-            continue
+    for _, r in eventi[eventi["Calcolabile"]].iterrows():
+        durata = (r["Fine"] - r["Inizio"]).days + 1
 
-        inizio = evento["Data inizio"]
-        fine = evento["Data fine"]
-        durata = int(evento["Durata giorni"])
+        for mese in pd.period_range(r["Inizio"], r["Fine"], freq="M"):
+            a = max(r["Inizio"], mese.start_time.normalize())
+            b = min(r["Fine"], mese.end_time.normalize())
+            giorni = (b - a).days + 1
 
-        mesi = pd.period_range(
-            inizio.to_period("M"),
-            fine.to_period("M"),
-            freq="M",
-        )
-
-        for periodo in mesi:
-            primo = periodo.start_time.normalize()
-            ultimo = periodo.end_time.normalize()
-
-            giorni = (
-                min(fine, ultimo) - max(inizio, primo)
-            ).days + 1
-
-            riga = evento.to_dict()
-            riga["year"] = periodo.year
-            riga["month"] = periodo.month
-            riga["data"] = primo
-            riga["Giorni evento nel mese"] = giorni
-            riga["Quota temporale"] = giorni / durata
-            righe.append(riga)
+            righe.append({
+                "ID evento": r["ID evento"],
+                "Evento": r["Evento"],
+                "Sport": r["Sport"],
+                "nuts2_code": r["NUTS2"],
+                "Regione": nomi_reg.get(r["NUTS2"], r["NUTS2"]),
+                "year": mese.year,
+                "month": mese.month,
+                "data": mese.start_time,
+                "Durata": durata,
+                "Giorni nel mese": giorni,
+                "Peso temporale": giorni / durata,
+                "Quota territoriale": r["Quota territoriale"],
+                "Base": r["Base"],
+                "Categoria": r["Categoria"],
+            })
 
     if not righe:
         return pd.DataFrame()
 
     risultato = pd.DataFrame(righe)
 
-    denominatore = reg[
-        [
-            "nuts2_code",
-            "year",
-            "month",
-            "guest_nights_total",
-        ]
-    ].copy()
+    if reg.empty:
+        risultato["guest_nights_total"] = float("nan")
+        return risultato
 
-    risultato = risultato.merge(
-        denominatore,
+    return risultato.merge(
+        reg[["nuts2_code", "year", "month", "guest_nights_total"]],
         on=["nuts2_code", "year", "month"],
         how="left",
         validate="many_to_one",
     )
 
-    return risultato
 
+def simula(mesi, parametri, quota_uniforme=None):
+    risultato = mesi.copy()
 
-def calcola_scenario(base, quote, notti):
-    risultato = base.copy()
-
-    risultato["Quota pernottanti (%)"] = (
-        risultato["Sport"].map(quote).astype(float)
+    risultato["Quota fuori territorio %"] = risultato["Sport"].map(
+        lambda s: parametri[s]["fuori"]
     )
-
-    risultato["Notti richieste"] = (
-        risultato["Sport"].map(notti).astype(float)
+    risultato["Quota pernottanti %"] = (
+        quota_uniforme
+        if quota_uniforme is not None
+        else risultato["Sport"].map(lambda s: parametri[s]["quota"])
     )
+    richieste = risultato["Sport"].map(lambda s: parametri[s]["notti"])
+    risultato["Notti applicate"] = pd.concat(
+        [richieste.rename("richieste"), risultato["Durata"]], axis=1
+    ).min(axis=1).clip(lower=1, upper=5)
 
-    risultato["Notti applicate"] = risultato[
-        ["Notti richieste", "Durata giorni"]
-    ].min(axis=1).clip(lower=1, upper=5)
-
-    risultato["Pernottanti teorici evento"] = (
-        risultato["Base simulazione"]
-        * risultato["Quota pernottanti (%)"]
-        / 100
-    )
-
-    risultato["Notti teoriche nel mese"] = (
-        risultato["Pernottanti teorici evento"]
+    risultato["Pernottamenti simulati"] = (
+        risultato["Base"]
+        * risultato["Quota territoriale"]
+        * risultato["Quota fuori territorio %"] / 100
+        * risultato["Quota pernottanti %"] / 100
         * risultato["Notti applicate"]
-        * risultato["Quota temporale"]
+        * risultato["Peso temporale"]
     )
 
     denominatore = risultato["guest_nights_total"].where(
         risultato["guest_nights_total"] > 0
     )
 
-    risultato["Incidenza teorica (%)"] = (
-        100
-        * risultato["Notti teoriche nel mese"]
-        / denominatore
+    risultato["Rapporto con domanda osservata %"] = (
+        100 * risultato["Pernottamenti simulati"] / denominatore
     )
-
-    risultato["Sopra soglia 2%"] = (
-        risultato["Incidenza teorica (%)"] >= 2
-    )
-
     return risultato
 
 
-def riepilogo_mensile(risultato):
-    gruppo = [
-        "nuts2_code",
-        "Regione",
-        "year",
-        "month",
-        "data",
-        "Categoria base",
-    ]
-
-    aggregato = (
-        risultato.groupby(gruppo, as_index=False)
-        .agg({
-            "Notti teoriche nel mese": "sum",
-            "guest_nights_total": "first",
-            "event_id": "nunique",
-        })
-        .rename(columns={
-            "event_id": "Eventi distinti",
-        })
+def riepilogo_simulazione(df):
+    risultato = (
+        df.groupby(
+            ["nuts2_code", "Regione", "year", "month", "data", "Categoria"],
+            dropna=False,
+        )
+        .agg(
+            Pernottamenti_simulati=("Pernottamenti simulati", "sum"),
+            Domanda_osservata=("guest_nights_total", "first"),
+            Eventi=("ID evento", "nunique"),
+        )
+        .reset_index()
     )
 
-    denominatore = aggregato["guest_nights_total"].where(
-        aggregato["guest_nights_total"] > 0
+    risultato["Rapporto %"] = (
+        100 * risultato["Pernottamenti_simulati"]
+        / risultato["Domanda_osservata"].where(
+            risultato["Domanda_osservata"] > 0
+        )
     )
-
-    aggregato["Incidenza teorica aggregata (%)"] = (
-        100
-        * aggregato["Notti teoriche nel mese"]
-        / denominatore
-    )
-
-    return aggregato
+    risultato["Soglia esplorativa 2%"] = risultato["Rapporto %"].ge(2)
+    return risultato
 
 
 # ============================================================
-# 8. PANORAMA NAZIONALE
+# PANORAMA NAZIONALE
 # ============================================================
+
+st.title(pagina)
 
 if pagina == "Panorama nazionale":
-    st.header("Panorama nazionale · 2022–2025")
+    richiedi("reg")
+    st.caption("Quadro nazionale. I filtri territoriali si applicano alle altre sezioni.")
 
-    storico = (
-        reg[reg["year"].between(2022, 2025)]
-        .groupby("year")["guest_nights_total"]
-        .sum(min_count=1)
+    annuale = aggrega(reg, ["year"], "guest_nights_total")
+    annuale = annuale.sort_values("year")
+    ultimo = int(annuale["year"].max())
+    corrente = annuale.loc[
+        annuale["year"].eq(ultimo), "guest_nights_total"
+    ].iloc[0]
+
+    mesi_ultimo = set(reg.loc[reg["year"].eq(ultimo), "month"])
+    confrontabile = reg[reg["month"].isin(mesi_ultimo)]
+    precedente = somma_completa(
+        confrontabile.loc[
+            confrontabile["year"].eq(ultimo - 1), "guest_nights_total"
+        ]
     )
-
-    v24 = storico.get(2024, float("nan"))
-    v25 = storico.get(2025, float("nan"))
 
     crescita = (
-        100 * (v25 / v24 - 1)
-        if pd.notna(v24) and v24 > 0
-        else float("nan")
+        100 * (corrente / precedente - 1)
+        if pd.notna(precedente) and precedente > 0 else float("nan")
     )
 
-    futuro = fr.loc[
-        fr["year"].eq(2030),
-        f"gn_{scenario.lower()}",
-    ].sum(min_count=1)
+    a, b, c = st.columns(3)
+    a.metric(f"Pernottamenti {ultimo}", numero(corrente))
+    b.metric("Variazione sugli stessi mesi", percentuale(crescita))
+    c.metric("Regioni / territori NUTS2", numero(reg["nuts2_code"].nunique()))
 
-    a, b, c, d = st.columns(4)
-
-    a.metric("Pernottamenti 2025", numero(v25))
-    b.metric("Crescita 2025/2024", percentuale(crescita))
-    c.metric(f"2030 · {scenario}", numero(futuro))
-    d.metric(
-        "Territori",
-        f"{reg.nuts2_code.nunique()} NUTS2 · "
-        f"{prov.nuts3_code.nunique()} NUTS3",
+    st.caption(
+        f"Anno {ultimo}: {len(mesi_ultimo)} mesi presenti. "
+        "La copertura territoriale e i valori mancanti vanno verificati in Dati e metodo."
     )
-
-    annuale = storico.rename(
-        "Pernottamenti"
-    ).reset_index()
 
     fig = px.bar(
         annuale,
         x="year",
-        y="Pernottamenti",
-        labels={"year": "Anno"},
-        color_discrete_sequence=[ACCENTO],
+        y="guest_nights_total",
+        labels={"year": "Anno", "guest_nights_total": "Pernottamenti"},
+        color_discrete_sequence=["#126982"],
     )
-    fig.update_xaxes(dtick=1)
-    grafico(fig, 360)
+    grafico(fig)
 
-    st.caption(
-        "2020–2021 esclusi dalla visualizzazione ordinaria. "
-        "I dati descrivono la domanda sulle piattaforme "
-        "incluse nella rilevazione Eurostat."
+    anno = st.selectbox(
+        "Anno della mappa",
+        sorted(reg["year"].unique(), reverse=True),
     )
-
-    geo = (
-        reg[reg["year"].eq(2025)]
-        .groupby("nuts2_code", as_index=False)["guest_nights_total"]
-        .sum(min_count=1)
+    dati_mappa = aggrega(
+        reg[reg["year"].eq(anno)], ["nuts2_code"], "guest_nights_total"
     )
-
-    geo["territorio"] = geo["nuts2_code"].map(nomi_reg)
-
-    mappa(
-        geo,
-        2,
-        "nuts2_code",
-        "guest_nights_total",
-        "Domanda regionale osservata · 2025",
+    mappa_kepler(
+        dati_mappa, 2, "nuts2_code", "guest_nights_total",
+        f"Pernottamenti per regione · {anno}",
     )
 
 
 # ============================================================
-# 9. ESPLORA UN TERRITORIO
+# TERRITORIO
 # ============================================================
 
 elif pagina == "Esplora un territorio":
-    st.header("Domanda turistica osservata")
-
-    livello = st.radio(
-        "Frequenza",
-        ["Mensile NUTS2", "Annuale NUTS3"],
-        horizontal=True,
-    )
-
-    base = reg if livello == "Mensile NUTS2" else prov
-
-    indicatori = {
-        "Pernottamenti degli ospiti": "guest_nights_total",
-        "Pernottamenti domestici": "guest_nights_domestic",
-        "Pernottamenti stranieri": "guest_nights_foreign",
-        "Soggiorni": "stays_total",
-        "Notti di alloggio occupate": "occupied_nights_total",
-    }
-
-    disponibili = {
-        nome: campo
-        for nome, campo in indicatori.items()
-        if campo in base.columns
-    }
-
-    misura = st.selectbox(
-        "Indicatore",
-        list(disponibili),
-    )
-    campo = disponibili[misura]
-
-    dati = base[base["year"] >= 2022].copy()
-
-    if regione != "Italia":
-        dati = dati[dati["nuts2_code"].eq(regione)]
-
-    territorio = (
-        "Italia"
-        if regione == "Italia"
-        else nomi_reg[regione]
-    )
-
-    if livello == "Annuale NUTS3" and provincia != "Tutte":
-        dati = dati[dati["nuts3_code"].eq(provincia)]
-        territorio = nomi_prov[provincia]
-
-    elif livello == "Mensile NUTS2" and provincia != "Tutte":
-        st.caption(
-            "La provincia non viene disaggregata mensilmente. "
-            "Questa vista usa il territorio regionale selezionato."
-        )
-
-    st.subheader(territorio)
-
-    if dati.empty:
-        st.info("Nessun dato disponibile.")
-        st.stop()
-
-    if livello == "Mensile NUTS2":
-        serie = (
-            dati.groupby("data", as_index=False)[campo]
-            .sum(min_count=1)
-            .sort_values("data")
-        )
-
-        a, b = st.columns(2)
-        a.metric(misura, numero(serie[campo].iloc[-1]))
-        b.metric(
-            "Ultimo mese",
-            serie["data"].iloc[-1].strftime("%m/%Y"),
-        )
-
+    if provincia != "Tutte":
+        richiedi("prov")
+        dati = filtra_territorio(prov)
+        serie = aggrega(dati, ["year"], "guest_nights_total")
+        st.subheader(str(nomi_prov.get(provincia, provincia)))
+        st.caption("Serie provinciale annuale. Nessuna mensilizzazione artificiale.")
         fig = px.line(
-            serie,
-            x="data",
-            y=campo,
-            labels={"data": "Mese", campo: misura},
-            color_discrete_sequence=[ACCENTO],
+            serie.sort_values("year"),
+            x="year", y="guest_nights_total", markers=True,
+            labels={"year": "Anno", "guest_nights_total": "Pernottamenti"},
+            color_discrete_sequence=["#126982"],
         )
         grafico(fig)
-
-        stag = serie.copy()
-        stag["Anno"] = stag["data"].dt.year.astype(str)
-        stag["Mese"] = stag["data"].dt.month
-
-        st.subheader("Stagionalità · confronto degli stessi mesi")
-
-        fig = px.line(
-            stag,
-            x="Mese",
-            y=campo,
-            color="Anno",
-            markers=True,
-            labels={campo: misura},
-            color_discrete_sequence=[
-                "#126889",
-                "#249784",
-                "#559EB8",
-                "#DC813F",
-                "#C94F7C",
-            ],
-        )
-        fig.update_xaxes(dtick=1)
-        grafico(fig)
-
-        ultimo_anno = int(serie["data"].dt.year.max())
-        mesi = serie.loc[
-            serie["data"].dt.year.eq(ultimo_anno),
-            "data",
-        ].dt.month.tolist()
-
-        attuale = serie[
-            serie["data"].dt.year.eq(ultimo_anno)
-            & serie["data"].dt.month.isin(mesi)
-        ][campo].sum(min_count=1)
-
-        precedente = serie[
-            serie["data"].dt.year.eq(ultimo_anno - 1)
-            & serie["data"].dt.month.isin(mesi)
-        ][campo].sum(min_count=1)
-
-        if pd.notna(precedente) and precedente > 0:
-            st.info(
-                f"Variazione {ultimo_anno}/{ultimo_anno - 1} "
-                "sugli stessi mesi: "
-                + percentuale(100 * (attuale / precedente - 1))
-            )
-
-        tabella(serie, "storico_regionale.csv")
+        tabella(dati, "territorio_provincia.csv")
 
     else:
-        serie = (
-            dati.groupby("year", as_index=False)[campo]
-            .sum(min_count=1)
-            .sort_values("year")
+        richiedi("reg")
+        dati = filtra_territorio(reg)
+        st.subheader(
+            "Italia" if regione == "Tutte" else str(nomi_reg[regione])
         )
-
-        fig = px.bar(
-            serie,
-            x="year",
-            y=campo,
-            labels={"year": "Anno", campo: misura},
-            color_discrete_sequence=[ACCENTO],
+        serie = aggrega(dati, ["data"], "guest_nights_total")
+        fig = px.line(
+            serie.sort_values("data"),
+            x="data", y="guest_nights_total",
+            labels={"data": "Mese", "guest_nights_total": "Pernottamenti"},
+            color_discrete_sequence=["#126982"],
         )
-        fig.update_xaxes(dtick=1)
         grafico(fig)
 
-        st.caption(
-            "Il dato provinciale è annuale: "
-            "non vengono creati dati mensili artificiali."
+        stagioni = aggrega(
+            dati, ["year", "month"], "guest_nights_total"
         )
-
-        tabella(serie, "storico_provinciale.csv")
+        stagioni["Anno"] = stagioni["year"].astype(str)
+        fig = px.line(
+            stagioni.sort_values(["year", "month"]),
+            x="month", y="guest_nights_total", color="Anno",
+            labels={"month": "Mese", "guest_nights_total": "Pernottamenti"},
+        )
+        st.subheader("Stagionalità")
+        grafico(fig)
+        tabella(dati, "territorio_regione.csv")
 
 
 # ============================================================
-# 10. EVENTI E SIMULATORE
+# EVENTI E SIMULATORE
 # ============================================================
 
 elif pagina == "Eventi e simulatore":
-    st.header("Eventi sportivi e screening esplorativo")
+    percorso = FILES["eventi"]
 
-    st.info(
-        "Il simulatore produce pernottamenti teorici "
-        "condizionati alle ipotesi selezionate. "
-        "Non misura un effetto causale e non modifica il forecast."
-    )
-
-    if not FILES["eventi"].is_file():
-        st.error(
-            "Event Master non trovato: "
-            + FILES["eventi"].name
-        )
-        st.stop()
+    if not percorso.exists():
+        candidati = [
+            p for cartella in (ROOT, ROOT / "output_eurostat")
+            if cartella.exists()
+            for p in cartella.glob("*.xlsx")
+            if "eventmaster" in normalizza(p.stem)
+        ]
+        if len(candidati) == 1:
+            percorso = candidati[0]
+        else:
+            st.error("File Excel dell'Event Master non trovato.")
+            st.stop()
 
     try:
+        fogli = fogli_excel(str(percorso), percorso.stat().st_mtime)
+        foglio = st.selectbox("Foglio Event Master", fogli)
         master = leggi_excel(
-            str(FILES["eventi"])
-        ).copy()
+            str(percorso), percorso.stat().st_mtime, foglio
+        )
     except Exception as exc:
-        st.error(f"Impossibile leggere l’Event Master: {exc}")
+        st.error(f"Impossibile leggere l'Event Master: {exc}")
         st.stop()
 
-    mapping = mappa_colonne_eventi(master)
-    eventi, errore = costruisci_eventi(master, mapping)
-
-    if errore:
-        st.warning(errore)
-        tabella(master)
+    if master.empty:
+        st.info("Il foglio selezionato non contiene righe.")
         st.stop()
 
-    if eventi.empty:
-        st.info("Il master non contiene eventi utilizzabili.")
-        st.stop()
+    mappa = mappatura_master(master)
+    standard = prepara_eventi(master, mappa)
 
-    if regione != "Italia":
-        eventi = eventi[
-            eventi["nuts2_code"].eq(regione)
-        ].copy()
-
-    catalogo_tab, simulatore_tab, storico_tab, file_tab = st.tabs([
-        "Catalogo e scheda evento",
-        "Simulatore · soglia 2%",
-        "Eventi e domanda osservata",
-        "Screening già calcolati",
+    catalogo_tab, verifica_tab, simulatore_tab, confronto_tab, salvati_tab = st.tabs([
+        "Catalogo completo",
+        "Verifica dati",
+        "Simulatore",
+        "Contesto turistico",
+        "Elaborazioni salvate",
     ])
 
-    # --------------------------------------------------------
-    # CATALOGO
-    # --------------------------------------------------------
-
     with catalogo_tab:
-        ricerca = st.text_input(
-            "Cerca evento",
-            key="cerca_catalogo",
+        st.caption(
+            "Qui sono conservate tutte le righe del foglio Excel selezionato, "
+            "comprese quelle non ancora utilizzabili nel simulatore."
         )
 
-        sport_catalogo = sorted(
-            eventi["Sport"].dropna().unique()
+        tutte_regioni = st.checkbox(
+            "Mostra il master di tutte le regioni",
+            value=True,
+            key="catalogo_tutte_regioni",
         )
 
-        scelti_catalogo = st.multiselect(
+        a, b = st.columns(2)
+        ricerca = a.text_input("Cerca nel master")
+        sport_catalogo = b.selectbox(
             "Sport nel catalogo",
-            sport_catalogo,
-            default=sport_catalogo,
+            ["Tutti"] + sorted(standard["Sport"].unique()),
         )
 
-        filtrati = eventi[
-            eventi["Sport"].isin(scelti_catalogo)
-        ].copy()
+        selezionate = standard.copy()
+
+        if not tutte_regioni and regione != "Tutte":
+            selezionate = selezionate[selezionate["NUTS2"].eq(regione)]
+
+        if sport_catalogo != "Tutti":
+            selezionate = selezionate[
+                selezionate["Sport"].eq(sport_catalogo)
+            ]
+
+        righe_master = sorted(selezionate["Riga master"].unique())
+        visibile = master.iloc[[int(i) - 1 for i in righe_master]].copy()
 
         if ricerca.strip():
-            filtrati = filtrati[
-                filtrati["Evento"].str.contains(
-                    ricerca.strip(),
-                    case=False,
-                    regex=False,
-                    na=False,
+            maschera = visibile.astype(str).apply(
+                lambda col: col.str.contains(
+                    ricerca.strip(), case=False, regex=False, na=False
                 )
-            ]
+            ).any(axis=1)
+            visibile = visibile.loc[maschera]
 
         a, b, c = st.columns(3)
-        a.metric("Eventi distinti", filtrati["event_id"].nunique())
-        b.metric("Righe territoriali", len(filtrati))
-        c.metric(
-            "Righe con base utilizzabile",
-            int(filtrati["Utilizzabile"].sum()),
+        a.metric("Righe nel foglio", numero(len(master)))
+        b.metric("Righe mostrate", numero(len(visibile)))
+        c.metric("Sport nel foglio", numero(standard["Sport"].nunique()))
+
+        tabella(visibile, "event_master_catalogo.csv", altezza=380)
+
+    with verifica_tab:
+        st.write(
+            "Le righe non riconosciute restano nel catalogo. "
+            "Questa tabella permette di correggere date, territorio, "
+            "volume e natura dell'indicatore per il calcolo."
         )
-
-        if not filtrati.empty:
-            chiavi = (
-                filtrati["Evento"]
-                + " · "
-                + filtrati["Data inizio"]
-                .dt.strftime("%d/%m/%Y")
-                .fillna("data non disponibile")
-                + " · "
-                + filtrati["event_id"]
-            )
-
-            selezione = st.selectbox(
-                "Scheda evento",
-                sorted(chiavi.unique()),
-            )
-
-            dettaglio = filtrati.loc[
-                chiavi.eq(selezione)
-            ]
-
-            st.subheader("Dati utilizzati dal simulatore")
-            tabella(
-                dettaglio.drop(
-                    columns=["riga_master"],
-                    errors="ignore",
-                )
-            )
-
-            st.subheader("Informazioni originali e fonti")
-            posizioni = dettaglio["riga_master"].astype(int).tolist()
-            tabella(master.iloc[posizioni])
-
-        with st.expander(
-            "Catalogo filtrato",
-            expanded=False,
-        ):
-            tabella(
-                filtrati.drop(
-                    columns=["riga_master"],
-                    errors="ignore",
-                ),
-                "catalogo_eventi_filtrato.csv",
-            )
-
         st.caption(
-            "Persone ed equivalenti restano distinti. "
-            "Le date sono visualizzate senza orario. "
-            "Le colonne completamente vuote sono nascoste."
+            "Le modifiche valgono per la sessione e non riscrivono l'Excel. "
+            "Scarica la tabella verificata per conservarle. "
+            "Una data finale assente è inizialmente trattata come evento di un giorno."
         )
 
-    # --------------------------------------------------------
-    # SIMULATORE
-    # --------------------------------------------------------
+        ripetuti = standard["ID evento"].duplicated(keep=False)
+        if ripetuti.any():
+            st.info(
+                "Alcuni eventi compaiono su più righe o territori. "
+                "Le quote proposte sono uniformi, ma non vengono applicate "
+                "finché il riparto non viene confermato. "
+                "Controlla anche se il volume è già territoriale."
+            )
+
+        conferma_uniforme = st.checkbox(
+            "Confermo che, per gli eventi ripetuti, il volume è il totale "
+            "dell'evento ripetuto sulle righe e accetto il riparto uniforme",
+            value=False,
+        )
+
+        base_editor = standard.copy()
+        if conferma_uniforme:
+            base_editor.loc[ripetuti, "Riparto confermato"] = True
+
+        modificabili = {
+            "Inizio", "Fine", "NUTS2", "Volume",
+            "Natura", "Quota territoriale", "Riparto confermato"
+        }
+
+        modificati = st.data_editor(
+            base_editor,
+            hide_index=True,
+            use_container_width=True,
+            height=350,
+            disabled=[
+                c for c in base_editor.columns if c not in modificabili
+            ],
+            column_config={
+                "Inizio": st.column_config.DateColumn(
+                    "Inizio", format="DD/MM/YYYY"
+                ),
+                "Fine": st.column_config.DateColumn(
+                    "Fine", format="DD/MM/YYYY"
+                ),
+                "Natura": st.column_config.SelectboxColumn(
+                    "Natura", options=NATURE, required=True
+                ),
+                "Volume": st.column_config.NumberColumn(
+                    "Volume", min_value=0.0
+                ),
+                "Quota territoriale": st.column_config.NumberColumn(
+                    "Quota territoriale", min_value=0.0,
+                    max_value=1.0, step=0.01, format="%.4f"
+                ),
+                "Riparto confermato": st.column_config.CheckboxColumn(
+                    "Riparto confermato"
+                ),
+            },
+            key=f"editor_eventi_{foglio}_{tuple(mappa.values())}_{conferma_uniforme}",
+        )
+
+        eventi = verifica_eventi(modificati)
+        calcolabili = eventi[eventi["Calcolabile"]]
+        sospesi = eventi[~eventi["Calcolabile"]]
+
+        a, b, c = st.columns(3)
+        a.metric("Righe territoriali", numero(len(eventi)))
+        b.metric("Calcolabili", numero(len(calcolabili)))
+        c.metric("Da verificare / fuori perimetro", numero(len(sospesi)))
+
+        if not sospesi.empty:
+            st.subheader("Motivo per ogni riga")
+            tabella(
+                sospesi[
+                    [
+                        "Riga master", "Evento", "Sport", "Inizio",
+                        "Fine", "NUTS2", "Volume", "Natura", "Verifica"
+                    ]
+                ],
+                "eventi_da_verificare.csv",
+            )
+
+        with st.expander("Scarica la base verificata"):
+            tabella(eventi, "eventi_base_verificata.csv")
 
     with simulatore_tab:
-        st.subheader("Imposta le ipotesi per ciascuno sport")
-
         st.write(
-            "Lo slider indica la quota della **base selezionata "
-            "che ipotizziamo pernotti**. "
-            "0% significa nessun pernottante; 100% significa "
-            "che tutta quella base pernotta."
+            "Simula quanta domanda di pernottamento potrebbe essere associata "
+            "agli eventi. I risultati sono scenari, non impatti causali misurati."
         )
 
-        st.caption(
-            "La base non coincide automaticamente con i visitatori "
-            "fuori regione. Domestic/foreign e tifosi ospiti non "
-            "vengono usati come sostituti automatici di tale quota."
-        )
-
-        utilizzabili = eventi[
-            eventi["Utilizzabile"]
-        ].copy()
-
-        esclusi = eventi[
-            ~eventi["Utilizzabile"]
-        ].copy()
-
-        if not esclusi.empty:
-            st.warning(
-                f"{len(esclusi)} righe non entrano nel simulatore "
-                "per date, territorio, base o unità non utilizzabili."
+        # I filtri mostrano tutti gli sport del master:
+        # non vengono costruiti solo sulle righe già calcolabili.
+        with st.expander("Filtri della simulazione", expanded=False):
+            sport_scelti = filtro_compatto(
+                "Sport",
+                sorted(eventi["Sport"].unique()),
+                "sim_sport",
             )
 
-            with st.expander("Mostra righe escluse e motivi"):
-                tabella(esclusi)
+            etichette = eventi.drop_duplicates("ID evento").set_index(
+                "ID evento"
+            )["Evento"].to_dict()
 
-        if utilizzabili.empty:
-            st.info(
-                "Nessuna base simulabile. Controlla le associazioni "
-                "delle colonne nell’espansore in alto."
+            id_disponibili = eventi.loc[
+                eventi["Sport"].isin(sport_scelti), "ID evento"
+            ].drop_duplicates().tolist()
+
+            id_scelti = filtro_compatto(
+                "Eventi",
+                id_disponibili,
+                "sim_eventi",
+                format_func=lambda k: f"{etichette.get(k, k)} · {k}",
             )
-
-        else:
-            mensile = espandi_eventi_mese(utilizzabili)
-
-            anni = sorted(
-                mensile.loc[
-                    mensile["year"] >= 2022,
-                    "year",
-                ].unique()
-            )
-
-            if not anni:
-                st.info("Nessun evento dal 2022 in avanti.")
-
-            else:
-                c1, c2 = st.columns(2)
-
-                with c1:
-                    anni_scelti = st.multiselect(
-                        "Anni della simulazione",
-                        anni,
-                        default=anni,
-                    )
-
-                with c2:
-                    mesi_scelti = st.multiselect(
-                        "Mesi della simulazione",
-                        list(range(1, 13)),
-                        default=list(range(1, 13)),
-                    )
-
-                sport_disponibili = sorted(
-                    mensile["Sport"].unique()
-                )
-
-                sport_scelti = st.multiselect(
-                    "Sport inclusi",
-                    sport_disponibili,
-                    default=sport_disponibili,
-                )
-
-                base = mensile[
-                    mensile["year"].isin(anni_scelti)
-                    & mensile["month"].isin(mesi_scelti)
-                    & mensile["Sport"].isin(sport_scelti)
-                ].copy()
-
-                if base.empty:
-                    st.info("Nessun evento per i filtri selezionati.")
-
-                else:
-                    etichette_evento = (
-                        base[
-                            ["event_id", "Evento", "Data inizio"]
-                        ]
-                        .drop_duplicates("event_id")
-                        .set_index("event_id")
-                    )
-
-                    ids = etichette_evento.index.tolist()
-
-                    eventi_scelti = st.multiselect(
-                        "Eventi inclusi",
-                        ids,
-                        default=ids,
-                        format_func=lambda x: (
-                            str(etichette_evento.loc[x, "Evento"])
-                            + " · "
-                            + str(
-                                etichette_evento.loc[
-                                    x, "Data inizio"
-                                ].strftime("%d/%m/%Y")
-                            )
-                        ),
-                    )
-
-                    base = base[
-                        base["event_id"].isin(eventi_scelti)
-                    ].copy()
-
-                    if base.empty:
-                        st.info("Seleziona almeno un evento.")
-
-                    else:
-                        sport_attivi = sorted(
-                            base["Sport"].unique()
-                        )
-
-                        preset = st.selectbox(
-                            "Preset globale",
-                            list(PRESET),
-                            index=2,
-                        )
-
-                        # Inizializzazione prima della creazione
-                        # dei widget.
-                        for sport in sport_attivi:
-                            key_q = f"quota_sport_{sport}"
-                            key_n = f"notti_sport_{sport}"
-
-                            if key_q not in st.session_state:
-                                st.session_state[key_q] = 25
-
-                            if key_n not in st.session_state:
-                                st.session_state[key_n] = 1
-
-                        if st.button(
-                            "Applica il preset a tutti gli sport",
-                            key="applica_preset",
-                        ):
-                            for sport in sport_attivi:
-                                st.session_state[
-                                    f"quota_sport_{sport}"
-                                ] = PRESET[preset]
-
-                        if st.button(
-                            "Ripristina 25% e 1 notte",
-                            key="reset_simulatore",
-                        ):
-                            for sport in sport_attivi:
-                                st.session_state[
-                                    f"quota_sport_{sport}"
-                                ] = 25
-                                st.session_state[
-                                    f"notti_sport_{sport}"
-                                ] = 1
-
-                        quote = {}
-                        notti = {}
-
-                        for sport in sport_attivi:
-                            st.markdown(f"**{html.escape(sport)}**")
-
-                            max_notti = int(
-                                min(
-                                    5,
-                                    base.loc[
-                                        base["Sport"].eq(sport),
-                                        "Durata giorni",
-                                    ].max(),
-                                )
-                            )
-                            max_notti = max(1, max_notti)
-
-                            key_q = f"quota_sport_{sport}"
-                            key_n = f"notti_sport_{sport}"
-
-                            if st.session_state[key_n] > max_notti:
-                                st.session_state[key_n] = max_notti
-
-                            sinistra, destra = st.columns(2)
-
-                            with sinistra:
-                                quote[sport] = st.slider(
-                                    f"Quota pernottanti · {sport}",
-                                    min_value=0,
-                                    max_value=100,
-                                    step=1,
-                                    key=key_q,
-                                    format="%d%%",
-                                )
-
-                            with destra:
-                                if max_notti == 1:
-                                    notti[sport] = 1
-                                    st.caption(
-                                        "Notti per pernottante: 1. "
-                                        "Gli eventi selezionati durano un giorno."
-                                    )
-                                else:
-                                    notti[sport] = st.slider(
-                                        f"Notti per pernottante · {sport}",
-                                        min_value=1,
-                                        max_value=max_notti,
-                                        step=1,
-                                        key=key_n,
-                                    )
-
-                        st.caption(
-                            "Per ogni evento le notti applicate sono "
-                            "limitate alla sua durata e a un massimo "
-                            "di 5. Non sono imposti minimi di "
-                            "pernottanti basati sui tifosi ospiti."
-                        )
-
-                        risultato = calcola_scenario(
-                            base,
-                            quote,
-                            notti,
-                        )
-
-                        persone = risultato[
-                            risultato["Categoria base"].eq("PERSONE")
-                        ]
-
-                        proxy = risultato[
-                            risultato["Categoria base"].eq("EQUIVALENTE")
-                        ]
-
-                        a, b, c, d = st.columns(4)
-
-                        a.metric(
-                            "Notti teoriche · base persone",
-                            numero(
-                                persone["Notti teoriche nel mese"].sum()
-                            ),
-                        )
-
-                        b.metric(
-                            "Notti teoriche · base equivalente",
-                            numero(
-                                proxy["Notti teoriche nel mese"].sum()
-                            ),
-                        )
-
-                        c.metric(
-                            "Righe evento-regione-mese ≥ 2%",
-                            int(risultato["Sopra soglia 2%"].sum()),
-                        )
-
-                        d.metric(
-                            "Eventi selezionati",
-                            risultato["event_id"].nunique(),
-                        )
-
-                        senza_domanda = (
-                            risultato["guest_nights_total"].isna()
-                            | risultato["guest_nights_total"].le(0)
-                        )
-
-                        if senza_domanda.any():
-                            st.warning(
-                                f"{int(senza_domanda.sum())} righe "
-                                "non hanno domanda Eurostat positiva "
-                                "disponibile: le notti sono simulate, "
-                                "ma l’incidenza non viene calcolata."
-                            )
-
-                        st.info(
-                            "Le due basi sono mostrate separatamente: "
-                            "le notti da equivalenti non sono "
-                            "pernottamenti misurati su visitatori unici."
-                        )
-
-                        st.subheader(
-                            "Confronto dei cinque preset"
-                        )
-
-                        confronto_preset = []
-
-                        for nome_preset, quota in PRESET.items():
-                            alternativo = calcola_scenario(
-                                base,
-                                {s: quota for s in sport_attivi},
-                                notti,
-                            )
-
-                            for categoria in [
-                                "PERSONE",
-                                "EQUIVALENTE",
-                            ]:
-                                subset = alternativo[
-                                    alternativo["Categoria base"].eq(
-                                        categoria
-                                    )
-                                ]
-
-                                confronto_preset.append({
-                                    "Preset": nome_preset,
-                                    "Base": categoria,
-                                    "Notti teoriche": subset[
-                                        "Notti teoriche nel mese"
-                                    ].sum(),
-                                    "Righe ≥ 2%": int(
-                                        subset["Sopra soglia 2%"].sum()
-                                    ),
-                                })
-
-                        confronto_preset = pd.DataFrame(
-                            confronto_preset
-                        )
-
-                        fig = px.bar(
-                            confronto_preset,
-                            x="Preset",
-                            y="Notti teoriche",
-                            color="Base",
-                            barmode="group",
-                            color_discrete_map={
-                                "PERSONE": ACCENTO,
-                                "EQUIVALENTE": COLORI["Intermedio"],
-                            },
-                        )
-                        grafico(fig)
-
-                        st.caption(
-                            "Nel confronto varia la quota globale; "
-                            "restano ferme le notti scelte per sport "
-                            "e gli eventi selezionati."
-                        )
-
-                        tabella(
-                            confronto_preset,
-                            "simulatore_confronto_preset.csv",
-                        )
-
-                        st.subheader(
-                            "Incidenza per regione e mese"
-                        )
-
-                        aggregato = riepilogo_mensile(risultato)
-
-                        st.caption(
-                            "Il denominatore regionale mensile viene "
-                            "conteggiato una sola volta per gruppo. "
-                            "L’aggregazione somma esposizioni teoriche: "
-                            "non elimina eventuali visitatori comuni "
-                            "a eventi diversi."
-                        )
-
-                        tabella(
-                            aggregato,
-                            "simulatore_regioni_mesi.csv",
-                        )
-
-                        st.subheader(
-                            "Dettaglio evento × regione × mese"
-                        )
-
-                        solo_soglia = st.checkbox(
-                            "Mostra soltanto le righe almeno al 2%",
-                            key="soglia_live",
-                        )
-
-                        dettaglio = (
-                            risultato[
-                                risultato["Sopra soglia 2%"]
-                            ]
-                            if solo_soglia
-                            else risultato
-                        )
-
-                        colonne = [
-                            "Evento",
-                            "Sport",
-                            "Regione",
-                            "year",
-                            "month",
-                            "Data inizio",
-                            "Data fine",
-                            "Categoria base",
-                            "Base simulazione",
-                            "Metodo base",
-                            "Quota pernottanti (%)",
-                            "Notti applicate",
-                            "Giorni evento nel mese",
-                            "Quota temporale",
-                            "Notti teoriche nel mese",
-                            "guest_nights_total",
-                            "Incidenza teorica (%)",
-                            "Sopra soglia 2%",
-                        ]
-
-                        tabella(
-                            dettaglio[colonne],
-                            "simulatore_dettaglio.csv",
-                        )
-
-                        with st.expander(
-                            "Formula e interpretazione dei risultati"
-                        ):
-                            st.latex(
-                                r"T_{e,r,m}="
-                                r"B_{e,r}\times q_s"
-                                r"\times n_e\times w_{e,m}"
-                            )
-
-                            st.write(
-                                "**B:** base persone oppure equivalente. "
-                                "**q:** quota di pernottanti. "
-                                "**n:** notti applicate, limitate "
-                                "alla durata dell’evento e a 5. "
-                                "**w:** quota dei giorni dell’evento "
-                                "che ricade nel mese."
-                            )
-
-                            st.latex(
-                                r"I_{e,r,m}=100\times"
-                                r"\frac{T_{e,r,m}}{Y_{r,m}}"
-                            )
-
-                            st.write(
-                                "**Y:** guest nights Eurostat osservate "
-                                "nella stessa regione e nello stesso mese. "
-                                "Il 2% è una soglia esplorativa, "
-                                "non significatività statistica."
-                            )
-
-                            st.write(
-                                "La ripartizione temporale uniforme "
-                                "è un’ipotesi operativa: non ricostruisce "
-                                "i soggiorni effettivi prima, durante "
-                                "o dopo l’evento."
-                            )
-
-    # --------------------------------------------------------
-    # EVENTI E DOMANDA OSSERVATA
-    # --------------------------------------------------------
-
-    with storico_tab:
-        scelta_reg = (
-            regione
-            if regione != "Italia"
-            else st.selectbox(
-                "Regione da confrontare",
-                sorted(nomi_reg),
-                format_func=lambda x: nomi_reg[x],
-            )
-        )
-
-        anni_storici = sorted(
-            reg.loc[reg["year"] >= 2022, "year"].unique()
-        )
-
-        anno = st.selectbox(
-            "Anno osservato",
-            anni_storici,
-            index=len(anni_storici) - 1,
-        )
-
-        mese = st.selectbox(
-            "Mese osservato",
-            list(range(1, 13)),
-        )
-
-        base_storica = reg[
-            reg["year"].ge(2022)
-            & reg["month"].eq(mese)
-        ]
-
-        nazionale = (
-            base_storica.groupby("year")["guest_nights_total"]
-            .sum(min_count=1)
-        )
-
-        locale = (
-            base_storica[
-                base_storica["nuts2_code"].eq(scelta_reg)
-            ]
-            .set_index("year")["guest_nights_total"]
-        )
-
-        confronto = pd.DataFrame({
-            "Regione": locale,
-            "Resto Italia": nazionale - locale,
-        }).sort_index()
-
-        yoy = confronto.pct_change(fill_method=None) * 100
-
-        fig = go.Figure()
-
-        for nome, colore in [
-            ("Regione", ACCENTO),
-            ("Resto Italia", COLORI["Intermedio"]),
-        ]:
-            fig.add_trace(go.Scatter(
-                x=yoy.index,
-                y=yoy[nome],
-                name=nome,
-                mode="lines+markers",
-                line=dict(color=colore, width=3),
-            ))
-
-        fig.update_yaxes(title="Variazione annua (%)")
-        fig.update_xaxes(title="Anno", dtick=1)
-        grafico(fig)
-
-        primo = pd.Timestamp(
-            year=int(anno),
-            month=int(mese),
-            day=1,
-        )
-        ultimo = primo + pd.offsets.MonthEnd(0)
 
         selezione = eventi[
-            eventi["nuts2_code"].eq(scelta_reg)
-            & eventi["Data inizio"].le(ultimo)
-            & eventi["Data fine"].ge(primo)
-        ]
+            eventi["Sport"].isin(sport_scelti)
+            & eventi["ID evento"].isin(id_scelti)
+        ].copy()
 
-        st.subheader("Eventi presenti nel mese selezionato")
-
-        tabella(
-            selezione.drop(
-                columns=["riga_master"],
-                errors="ignore",
-            )
-        )
+        if regione != "Tutte":
+            selezione = selezione[selezione["NUTS2"].eq(regione)]
 
         st.caption(
-            "Il resto d’Italia non è automaticamente "
-            "un gruppo di controllo non esposto: "
-            "può ospitare altri eventi. "
-            "Il confronto è descrittivo."
+            "Territorio: "
+            + ("Italia" if regione == "Tutte" else str(nomi_reg[regione]))
+            + ". Gli eventi con dati turistici mancanti mantengono la "
+              "simulazione, ma non il rapporto percentuale."
         )
 
-    # --------------------------------------------------------
-    # RISULTATI STORICI GIÀ SALVATI
-    # --------------------------------------------------------
+        buone = selezione[selezione["Calcolabile"]]
+        problematiche = selezione[~selezione["Calcolabile"]]
 
-    with file_tab:
-        st.write(
-            "Questi sono gli screening già presenti nei file. "
-            "Gli slider del simulatore non li sovrascrivono."
-        )
+        a, b, c = st.columns(3)
+        a.metric("Eventi selezionati", numero(selezione["ID evento"].nunique()))
+        b.metric("Eventi con righe calcolabili", numero(buone["ID evento"].nunique()))
+        c.metric("Righe da verificare", numero(len(problematiche)))
 
-        for chiave, titolo, export in [
-            (
-                "screening",
-                "Screening per evento",
-                "screening_storico_eventi.csv",
-            ),
-            (
-                "mesi_eventi",
-                "Screening per regione e mese",
-                "screening_storico_regioni_mesi.csv",
-            ),
-        ]:
-            with st.expander(titolo):
-                if FILES[chiave].is_file():
-                    storico_file = leggi_csv(
-                        str(FILES[chiave])
-                    ).copy()
+        if not problematiche.empty:
+            with st.expander("Perché alcune righe non vengono calcolate"):
+                st.dataframe(
+                    prepara_tabella(
+                        problematiche[["Evento", "Sport", "NUTS2", "Verifica"]]
+                    ),
+                    hide_index=True,
+                    use_container_width=True,
+                )
 
-                    col_nuts = trova_colonna(
-                        storico_file,
-                        "nuts2_code",
-                        "NUTS2",
-                        "Codici NUTS2",
+        mesi = espandi_mesi(selezione)
+
+        if mesi.empty:
+            st.info(
+                "Nessuna riga calcolabile per questa selezione. "
+                "Apri Verifica dati: tutti gli eventi restano nel catalogo."
+            )
+        else:
+            with st.expander("Periodo della simulazione", expanded=False):
+                anni_scelti = filtro_compatto(
+                    "Anni", sorted(mesi["year"].unique()), "sim_anni"
+                )
+                mesi_scelti = filtro_compatto(
+                    "Mesi", list(range(1, 13)), "sim_mesi"
+                )
+
+            mesi = mesi[
+                mesi["year"].isin(anni_scelti)
+                & mesi["month"].isin(mesi_scelti)
+            ]
+
+            if mesi.empty:
+                st.info("Nessun evento nel periodo selezionato.")
+            else:
+                sport_attivi = sorted(mesi["Sport"].unique())
+                a, b = st.columns([2, 1])
+                preset = a.selectbox(
+                    "Quota pernottanti: preset comune",
+                    [5, 15, 25, 40, 60],
+                    index=2,
+                    format_func=lambda q: f"{q}%",
+                )
+
+                if b.button("Applica agli sport"):
+                    for sport in sport_attivi:
+                        st.session_state[f"quota_{sport}"] = int(preset)
+
+                st.caption(
+                    "La quota 0–100% indica quanti, tra i non residenti "
+                    "considerati nello scenario, pernottano. "
+                    "0% = nessuno; 100% = tutti. "
+                    "La quota di persone provenienti da fuori è un'ipotesi separata."
+                )
+
+                parametri = {}
+
+                for sport in sport_attivi:
+                    with st.expander(
+                        f"{sport} · parametri",
+                        expanded=len(sport_attivi) <= 2,
+                    ):
+                        c1, c2, c3 = st.columns(3)
+
+                        fuori = c1.slider(
+                            "Provenienti da fuori territorio (%)",
+                            0, 100, 100,
+                            key=f"fuori_{sport}",
+                            help=(
+                                "100% è un'ipotesi di scenario, non un dato osservato. "
+                                "Se la base contiene già solo non residenti, lascia 100."
+                            ),
+                        )
+                        quota = c2.slider(
+                            "Tra questi: quota pernottanti (%)",
+                            0, 100, 25,
+                            key=f"quota_{sport}",
+                        )
+                        notti = c3.slider(
+                            "Notti per pernottante",
+                            1, 5, 1,
+                            key=f"notti_{sport}",
+                        )
+
+                        st.caption(
+                            "Le notti vengono limitate alla durata del singolo "
+                            "evento, fino a un massimo di 5. "
+                            "Non sono inclusi soggiorni prima o dopo l'evento."
+                        )
+
+                        parametri[sport] = {
+                            "fuori": fuori,
+                            "quota": quota,
+                            "notti": notti,
+                        }
+
+                risultato = simula(mesi, parametri)
+                mensile = riepilogo_simulazione(risultato)
+
+                a, b = st.columns(2)
+                persone = risultato.loc[
+                    risultato["Categoria"].eq("PERSONE"),
+                    "Pernottamenti simulati",
+                ].sum()
+                equivalenti = risultato.loc[
+                    risultato["Categoria"].eq("EQUIVALENTI"),
+                    "Pernottamenti simulati",
+                ].sum()
+
+                a.metric("Pernottamenti · base persone", numero(persone))
+                b.metric("Pernottamenti · base equivalente", numero(equivalenti))
+
+                st.caption(
+                    "Le due basi restano separate. Gli equivalenti non sono "
+                    "visitatori unici. La somma tra eventi può includere "
+                    "persone o soggiorni presenti in più eventi."
+                )
+
+                n_senza = risultato.loc[
+                    risultato["guest_nights_total"].isna()
+                    | risultato["guest_nights_total"].le(0),
+                    ["nuts2_code", "year", "month"],
+                ].drop_duplicates()
+
+                if not n_senza.empty:
+                    st.info(
+                        f"{len(n_senza)} combinazioni regione–mese "
+                        "senza denominatore turistico positivo: "
+                        "il rapporto percentuale resta non disponibile."
                     )
 
-                    if col_nuts and regione != "Italia":
-                        storico_file = storico_file[
-                            storico_file[col_nuts]
-                            .astype(str)
-                            .str.contains(
-                                regione,
-                                regex=False,
-                                na=False,
-                            )
-                        ]
+                andamento = (
+                    mensile.groupby(["data", "Categoria"])[
+                        "Pernottamenti_simulati"
+                    ].sum().reset_index()
+                )
+                fig = px.bar(
+                    andamento,
+                    x="data", y="Pernottamenti_simulati",
+                    color="Categoria", barmode="group",
+                    color_discrete_map={
+                        "PERSONE": "#126982",
+                        "EQUIVALENTI": "#DC813F",
+                    },
+                    labels={
+                        "data": "Mese",
+                        "Pernottamenti_simulati": "Pernottamenti simulati",
+                    },
+                )
+                grafico(fig)
 
-                    tabella(storico_file, export)
+                st.subheader("Confronto con la domanda osservata")
+                solo_soglia = st.checkbox(
+                    "Mostra solo rapporti almeno pari al 2%",
+                    value=False,
+                )
+                vista = (
+                    mensile[mensile["Soglia esplorativa 2%"]]
+                    if solo_soglia else mensile
+                )
+                tabella(vista, "simulazione_regioni_mesi.csv")
 
-                else:
-                    st.info("File non disponibile.")
+                with st.expander("Confronto dei cinque scenari"):
+                    confronti = []
+                    for q in [5, 15, 25, 40, 60]:
+                        scenario = simula(mesi, parametri, quota_uniforme=q)
+                        totali = scenario.groupby("Categoria")[
+                            "Pernottamenti simulati"
+                        ].sum()
+                        for categoria, totale in totali.items():
+                            confronti.append({
+                                "Quota pernottanti": f"{q}%",
+                                "Categoria": categoria,
+                                "Pernottamenti simulati": totale,
+                            })
+
+                    scenari_df = pd.DataFrame(confronti)
+                    st.caption(
+                        "Cambia solo la quota pernottanti. "
+                        "Origine, notti e selezione degli eventi restano invariati."
+                    )
+                    fig = px.bar(
+                        scenari_df,
+                        x="Quota pernottanti",
+                        y="Pernottamenti simulati",
+                        color="Categoria",
+                        barmode="group",
+                        color_discrete_map={
+                            "PERSONE": "#126982",
+                            "EQUIVALENTI": "#DC813F",
+                        },
+                    )
+                    grafico(fig)
+                    tabella(scenari_df, "simulazione_cinque_scenari.csv")
+
+                with st.expander("Dettaglio evento–regione–mese"):
+                    tabella(risultato, "simulazione_dettaglio.csv")
+
+                with st.expander("Come leggere il calcolo"):
+                    st.markdown(
+                        """
+                        **Pernottamenti simulati = base × quota territoriale
+                        × quota da fuori × quota pernottanti × notti
+                        × peso temporale.**
+
+                        Le percentuali entrano nella formula divise per 100.
+
+                        Il peso temporale è il rapporto tra i giorni dell'evento
+                        nel mese e la sua durata complessiva. È un'ipotesi di
+                        ripartizione uniforme, non una distribuzione osservata.
+
+                        Il rapporto con Eurostat misura una **dimensione relativa**.
+                        Non dimostra che quella quota di turismo sia stata causata
+                        dall'evento. Il 2% è una soglia esplorativa.
+                        """
+                    )
+
+    with confronto_tab:
+        if reg.empty:
+            st.info("Dati regionali non disponibili.")
+        else:
+            codici = sorted(nomi_reg, key=lambda k: str(nomi_reg[k]))
+            indice = codici.index(regione) if regione in codici else 0
+            scelta = st.selectbox(
+                "Regione del confronto",
+                codici,
+                index=indice,
+                format_func=lambda k: str(nomi_reg[k]),
+            )
+
+            serie = reg[reg["nuts2_code"].eq(scelta)].copy()
+            serie = serie.sort_values("data")
+            precedenti = serie[
+                ["year", "month", "guest_nights_total"]
+            ].copy()
+            precedenti["year"] += 1
+            precedenti = precedenti.rename(
+                columns={"guest_nights_total": "Anno precedente"}
+            )
+            serie = serie.merge(
+                precedenti, on=["year", "month"], how="left",
+                validate="one_to_one",
+            )
+            serie["Variazione stesso mese %"] = (
+                100 * (
+                    serie["guest_nights_total"]
+                    / serie["Anno precedente"].where(
+                        serie["Anno precedente"] > 0
+                    ) - 1
+                )
+            )
+
+            fig = px.line(
+                serie,
+                x="data", y="guest_nights_total",
+                color_discrete_sequence=["#126982"],
+                labels={"data": "Mese", "guest_nights_total": "Pernottamenti"},
+            )
+            grafico(fig)
+
+            st.caption(
+                "Confronto descrittivo con lo stesso mese dell'anno precedente. "
+                "Stagionalità, festività, prezzi e altri eventi possono influire. "
+                "Questo grafico non identifica un effetto causale."
+            )
+            tabella(serie, "contesto_turistico_regionale.csv")
+
+    with salvati_tab:
+        disponibili = [n for n in SCREENING if file_dati(n).exists()]
+
+        if not disponibili:
+            st.info("Nessuna elaborazione salvata trovata.")
+        else:
+            scelta = st.selectbox("Elaborazione", disponibili)
+            st.caption(
+                "Output già presente nel repository. "
+                "Non viene modificato dai cursori del simulatore."
+            )
+            try:
+                tabella(carica_csv(file_dati(scelta)), f"copia_{scelta}")
+            except Exception as exc:
+                st.error(f"Impossibile leggere il file: {exc}")
 
 
 # ============================================================
-# 11. FORECAST 2026–2030
+# FORECAST
 # ============================================================
 
 elif pagina == "Forecast 2026–2030":
-    st.header("Forecast 2026–2030")
+    provinciale = provincia != "Tutte"
+    chiave = "fp" if provinciale else "fr"
+    richiedi(chiave)
 
-    st.info(
-        "Gli scenari rappresentano ipotesi alternative, "
-        "non intervalli di confidenza. "
-        "Il simulatore sportivo non viene sommato al forecast."
+    dati = filtra_territorio(DATI[chiave])
+    prefisso = "forecast_" if provinciale else "gn_"
+    codice = "nuts3_code" if provinciale else "nuts2_code"
+    livello = 3 if provinciale else 2
+
+    st.caption(
+        "Scenari letti dai CSV del progetto. "
+        "I parametri del simulatore eventi non modificano questi forecast."
     )
 
-    attivi = st.multiselect(
-        "Scenari da visualizzare",
+    scenari_scelti = st.multiselect(
+        "Scenari",
         SCENARI,
         default=SCENARI,
     )
 
-    fig = go.Figure()
-
-    if provincia != "Tutte":
-        storico = prov[
-            prov["nuts3_code"].eq(provincia)
-            & prov["year"].ge(2022)
-        ].sort_values("year")
-
-        futuro = fp[
-            fp["nuts3_code"].eq(provincia)
-        ].sort_values("year")
-
-        st.subheader(
-            nomi_prov[provincia] + " · NUTS3 annuale"
-        )
-
-        x = storico["year"].tolist()
-        y = storico["guest_nights_total"].tolist()
-
-        if not x:
-            st.warning("Storico non disponibile.")
-            st.stop()
-
-        for s in attivi:
-            fig.add_trace(go.Scatter(
-                x=[x[-1]] + futuro["year"].tolist(),
-                y=[y[-1]] + futuro[
-                    f"forecast_{s.lower()}"
-                ].tolist(),
-                name=s,
-                mode="lines+markers",
-                line=dict(
-                    color=COLORI[s],
-                    dash="dash",
-                    width=3,
-                ),
-            ))
-
-        dati_annuali = futuro
-        prefisso = "forecast_"
-
-        st.caption(
-            "Previsione provinciale ottenuta ripartendo "
-            "quella regionale con quote 2025 costanti."
-        )
-
+    if not scenari_scelti:
+        st.info("Seleziona almeno uno scenario.")
+    elif dati.empty:
+        st.info("Nessun forecast per il territorio selezionato.")
     else:
-        base = (
-            reg
-            if regione == "Italia"
-            else reg[reg["nuts2_code"].eq(regione)]
+        righe = []
+        for scenario in scenari_scelti:
+            campo = prefisso + scenario.lower()
+            annuale = aggrega(dati, ["year"], campo)
+            annuale = annuale.rename(columns={campo: "Pernottamenti"})
+            annuale["Scenario"] = scenario
+            righe.append(annuale)
+
+        lungo = pd.concat(righe, ignore_index=True)
+        fig = px.line(
+            lungo.sort_values("year"),
+            x="year", y="Pernottamenti",
+            color="Scenario", markers=True,
+            color_discrete_map=COLORI,
+            labels={"year": "Anno"},
+        )
+        grafico(fig)
+
+        a, b = st.columns(2)
+        anno = a.selectbox(
+            "Anno della mappa",
+            sorted(dati["year"].unique(), reverse=True),
+        )
+        scenario = b.selectbox("Scenario della mappa", scenari_scelti)
+        campo = prefisso + scenario.lower()
+
+        mappa_df = aggrega(
+            dati[dati["year"].eq(anno)], [codice], campo
+        )
+        mappa_kepler(
+            mappa_df, livello, codice, campo,
+            f"Forecast {scenario.lower()} · {anno}",
         )
 
-        storico = (
-            base[base["year"].ge(2022)]
-            .groupby("data", as_index=False)["guest_nights_total"]
-            .sum(min_count=1)
-            .sort_values("data")
-        )
+        tabella(lungo, "forecast_riepilogo.csv")
 
-        dati_annuali = (
-            fr
-            if regione == "Italia"
-            else fr[fr["nuts2_code"].eq(regione)]
-        )
-
-        campi = [
-            f"gn_{s.lower()}"
-            for s in SCENARI
-        ]
-
-        futuro = (
-            dati_annuali[
-                dati_annuali["data"] > storico["data"].max()
-            ]
-            .groupby("data", as_index=False)[campi]
-            .sum(min_count=1)
-            .sort_values("data")
-        )
-
-        x = storico["data"].tolist()
-        y = storico["guest_nights_total"].tolist()
-
-        if not x:
-            st.warning("Storico non disponibile.")
-            st.stop()
-
-        st.subheader(
-            (
-                "Italia"
-                if regione == "Italia"
-                else nomi_reg[regione]
-            ) + " · NUTS2 mensile"
-        )
-
-        for s in attivi:
-            fig.add_trace(go.Scatter(
-                x=[x[-1]] + futuro["data"].tolist(),
-                y=[y[-1]] + futuro[
-                    f"gn_{s.lower()}"
-                ].tolist(),
-                name=s,
-                mode="lines",
-                line=dict(
-                    color=COLORI[s],
-                    dash="dash",
-                    width=3,
-                ),
-            ))
-
-        prefisso = "gn_"
-
-    fig.add_trace(go.Scatter(
-        x=x,
-        y=y,
-        name="Osservato",
-        mode="lines",
-        line=dict(color=ACCENTO, width=3),
-    ))
-
-    fig.add_shape(
-        type="line",
-        x0=x[-1],
-        x1=x[-1],
-        y0=0,
-        y1=1,
-        yref="paper",
-        line=dict(
-            color=ACCENTO,
-            dash="dot",
-            width=1,
-        ),
-    )
-
-    fig.update_yaxes(title="Pernottamenti degli ospiti")
-    grafico(fig, 480)
-
-    st.caption(
-        "Linea continua: osservato. Linee tratteggiate: scenari. "
-        "La linea verticale segna l’ultima osservazione."
-    )
-
-    confronto = pd.DataFrame({
-        "Anno": list(range(2026, 2031))
-    })
-
-    cards = st.columns(3)
-
-    for card, s in zip(cards, SCENARI):
-        annuale = (
-            dati_annuali.groupby("year")[
-                prefisso + s.lower()
-            ]
-            .sum(min_count=1)
-        )
-
-        confronto[s] = confronto["Anno"].map(annuale)
-
-        card.metric(
-            "2030 · " + s,
-            numero(annuale.get(2030, float("nan"))),
-        )
-
-    fig = go.Figure()
-
-    for s in attivi:
-        fig.add_trace(go.Scatter(
-            x=confronto["Anno"],
-            y=confronto[s],
-            name=s,
-            mode="lines+markers",
-            line=dict(color=COLORI[s], width=3),
-        ))
-
-    fig.update_xaxes(title="Anno", dtick=1)
-    fig.update_yaxes(title="Pernottamenti degli ospiti")
-    grafico(fig, 350)
-
-    tabella(confronto, "forecast_scenari.csv")
-
-    st.caption(
-        "I totali annuali sono letti dai CSV previsionali. "
-        "Non vengono ricalcolati dall’app."
-    )
-
-    st.divider()
-
-    anno_mappa = st.select_slider(
-        "Anno della mappa",
-        options=list(range(2026, 2031)),
-        value=2030,
-    )
-
-    livello_mappa = st.radio(
-        "Geografia della mappa",
-        ["NUTS2", "NUTS3"],
-        horizontal=True,
-    )
-
-    scenario_mappa = st.selectbox(
-        "Scenario della mappa",
-        SCENARI,
-        index=SCENARI.index(scenario),
-    )
-
-    if livello_mappa == "NUTS2":
-        campo = f"gn_{scenario_mappa.lower()}"
-
-        geo = (
-            fr[fr["year"].eq(anno_mappa)]
-            .groupby("nuts2_code", as_index=False)[campo]
-            .sum(min_count=1)
-        )
-
-        geo["territorio"] = geo["nuts2_code"].map(nomi_reg)
-
-        mappa(
-            geo,
-            2,
-            "nuts2_code",
-            campo,
-            f"NUTS2 · {anno_mappa} · {scenario_mappa}",
-        )
-
-    else:
-        campo = f"forecast_{scenario_mappa.lower()}"
-
-        geo = fp.loc[
-            fp["year"].eq(anno_mappa),
-            ["nuts3_code", campo],
-        ].copy()
-
-        geo["territorio"] = geo["nuts3_code"].map(nomi_prov)
-
-        mappa(
-            geo,
-            3,
-            "nuts3_code",
-            campo,
-            f"NUTS3 · {anno_mappa} · {scenario_mappa}",
-        )
+        if provinciale:
+            st.caption(
+                "Se il forecast provinciale è ottenuto con quote territoriali "
+                "costanti, non rappresenta una previsione indipendente "
+                "della dinamica di ciascuna provincia."
+            )
 
 
 # ============================================================
-# 12. DATI E METODO
+# DATI E METODO
 # ============================================================
 
 else:
-    st.header("Dati e metodo")
+    lettura, fonti, metodo, previsione, qualita = st.tabs([
+        "Come leggere",
+        "Fonti",
+        "Metodo eventi",
+        "Forecast",
+        "Qualità e limiti",
+    ])
 
-    st.write(
-        "**Domanda di ricerca:** quanto cambia la domanda "
-        "di alloggi di breve durata nei territori italiani "
-        "durante i periodi interessati da grandi eventi sportivi, "
-        "e quali scenari possiamo costruire per il futuro?"
-    )
-
-    st.info(
-        "La dashboard distingue osservazioni, simulazioni teoriche "
-        "e forecast. Non ha ancora identificato un effetto "
-        "causale degli eventi sportivi."
-    )
-
-    a, b, c, d = st.columns(4)
-
-    a.metric("NUTS2", reg["nuts2_code"].nunique())
-    b.metric("NUTS3", prov["nuts3_code"].nunique())
-    c.metric(
-        "Ultimo mese osservato",
-        reg["data"].max().strftime("%m/%Y"),
-    )
-    d.metric(
-        "Ultimo anno provinciale",
-        int(prov["year"].max()),
-    )
-
-    sintesi, fonti, eventi_metodo, forecast_metodo, qualita, limiti = (
-        st.tabs([
-            "Interpretazione",
-            "Fonti e indicatori",
-            "Simulazione eventi",
-            "Forecast",
-            "Qualità e validazione",
-            "Limiti e sviluppi",
-        ])
-    )
-
-    with sintesi:
-        st.subheader("Tre livelli di lettura")
-
-        tabella(pd.DataFrame([
-            [
-                "Osservato",
-                "Domanda registrata nei file Eurostat.",
-                "Descrive ciò che è accaduto, non perché.",
-            ],
-            [
-                "Simulazione",
-                "Pernottamenti teorici secondo quote e notti scelte.",
-                "È condizionata alle ipotesi, non un dato osservato.",
-            ],
-            [
-                "Forecast",
-                "Traiettorie future dei CSV previsionali.",
-                "Non è una garanzia né una stima causale sportiva.",
-            ],
-        ], columns=[
-            "Risultato",
-            "Significato",
-            "Interpretazione",
-        ]))
-
+    with lettura:
         st.markdown(
-            "1. **Eurostat Master:** dati turistici e controlli "
-            "di copertura.\n"
-            "2. **Event Master:** eventi, date, territori e fonti.\n"
-            "3. **Incrocio storico:** collegamento regione–mese "
-            "e confronto descrittivo.\n"
-            "4. **Scenari e forecast:** simulazioni teoriche degli "
-            "eventi e previsioni della domanda, mantenute separate."
-        )
+            """
+            ### Tre livelli distinti
 
-        st.write(
-            "**Esempio:** una crescita del 12% nel mese di un evento "
-            "non dimostra che l’evento abbia causato il 12%. "
-            "Il risultato osservato può dipendere anche da "
-            "stagionalità, trend, festività, offerta e altri fattori."
+            **Dati osservati.** Descrivono i pernottamenti registrati
+            nell'ambito coperto dalla fonte Eurostat.
+
+            **Simulazione degli eventi.** Traduce una base di partecipazione
+            in pernottamenti teorici mediante ipotesi modificabili.
+            Non misura direttamente i pernottamenti realmente generati.
+
+            **Forecast.** Mostra i tre scenari già elaborati nel progetto.
+            I pernottamenti simulati degli eventi non vengono aggiunti
+            automaticamente alle previsioni.
+
+            ### Domanda di ricerca
+
+            La dashboard permette di individuare eventi e mesi nei quali
+            la domanda teorica potrebbe essere rilevante rispetto
+            alla domanda turistica osservata.
+
+            Non consente, da sola, di concludere che un evento abbia causato
+            un certo incremento del turismo regionale.
+            """
         )
 
     with fonti:
-        st.subheader("Perimetro della rilevazione")
-
-        st.write(
-            "Eurostat considera gli alloggi di breve durata "
-            "prenotati attraverso le piattaforme partecipanti. "
-            "Il dato non coincide con il solo Airbnb né con "
-            "l’intero mercato degli affitti brevi."
-        )
-
-        tabella(pd.DataFrame([
-            [
-                "tour_ce_omn12",
-                "NUTS2 × mese",
-                "Domanda regionale; riferimento per il simulatore.",
-            ],
-            [
-                "tour_ce_oan3",
-                "NUTS3 × anno",
-                "Dettaglio provinciale annuale.",
-            ],
-            [
-                "Event Master",
-                "Evento × territorio",
-                "Caratteristiche, attendance, fonti e qualità.",
-            ],
-            [
-                "GISCO NUTS 2024",
-                "Geometrie ufficiali",
-                "Confini delle mappe.",
-            ],
-        ], columns=["Fonte", "Granularità", "Utilizzo"]))
-
-        st.subheader("Indicatori")
-
-        tabella(pd.DataFrame([
-            [
-                "Guest nights",
-                "Pernottamenti delle persone ospitate.",
-            ],
-            [
-                "Stays",
-                "Soggiorni / prenotazioni, non numero di ospiti.",
-            ],
-            [
-                "Occupied nights",
-                "Notti di alloggio occupate, senza moltiplicare "
-                "per il numero di persone.",
-            ],
-            [
-                "Domestic / foreign",
-                "Residenza in Italia / all’estero; "
-                "non provenienza da dentro o fuori regione.",
-            ],
-        ], columns=["Indicatore", "Definizione"]))
-
-        st.write(
-            "**Esempio:** tre persone per due notti nello stesso "
-            "alloggio corrispondono a un soggiorno, "
-            "due notti occupate e sei guest nights."
-        )
-
         st.markdown(
-            "[Metadati ufficiali Eurostat]"
-            "(https://ec.europa.eu/eurostat/cache/"
-            "metadata/en/tour_ce_esms.htm)"
+            """
+            ### Dati turistici
+
+            **`tour_ce_omn12`** è il riferimento per l'analisi mensile
+            regionale NUTS2 del progetto.
+
+            **`tour_ce_oan3`** è il riferimento per le serie annuali NUTS3.
+
+            I pernottamenti degli ospiti sono una misura diversa da arrivi,
+            persone uniche o notti di occupazione dell'alloggio:
+            tre ospiti per due notti corrispondono a sei pernottamenti.
+
+            La copertura riguarda gli alloggi e le piattaforme comprese
+            nella fonte. Non coincide automaticamente con tutto il turismo,
+            con il solo mercato Airbnb o con tutta la ricettività regionale.
+
+            ### Event Master
+
+            Il master è la fonte del catalogo degli eventi.
+            Il catalogo mostra tutte le righe del foglio selezionato,
+            anche quando una riga non è ancora utilizzabile nel calcolo.
+
+            Il numero di righe può essere diverso dal numero di eventi:
+            un evento può comparire in più territori o su più righe.
+
+            ### Riferimento
+
+            [Metadati Eurostat sulla domanda tramite piattaforme]
+            (https://ec.europa.eu/eurostat/cache/metadata/en/tour_ce_esms.htm)
+            """
         )
 
-        st.subheader("Periodo")
+    with metodo:
+        st.markdown(
+            """
+            ### 1. Individuazione della base
 
-        st.write(
-            "Il riferimento principale parte dal 2022, "
-            "con i mesi 2026 effettivamente disponibili. "
-            "Il 2020–2021 non è trattato come periodo ordinario. "
-            "Il 2022 è una scelta operativa post-Covid, "
-            "non la garanzia di completa normalizzazione "
-            "in ogni territorio."
-        )
+            - **Persone:** visitatori o partecipanti unici documentati
+              oppure stimati come tali dalla fonte.
+            - **Presenze cumulative:** vengono divise per la durata
+              dell'evento per costruire una base equivalente.
+            - **Equivalenti:** proxy già disponibile nel dataset.
+            - **Biglietti:** non vengono automaticamente trasformati
+              in persone o pernottamenti.
+            - **Indicatore ambiguo:** resta da verificare.
 
-        st.write(
-            "Gli anni incompleti vanno confrontati sugli stessi "
-            "mesi. Non vengono creati dati mensili provinciali "
-            "partendo da osservazioni annuali."
-        )
+            Il rapporto tra presenze cumulative e giorni è una media
+            giornaliera equivalente. **Non stima le persone uniche.**
 
-        st.write(
-            "**Prezzi:** un eventuale HICP dei servizi di alloggio "
-            "è un controllo macro, non un prezzo Airbnb. "
-            "Questa app non stima ADR, ricavi o tassi di occupazione."
-        )
+            Un campo chiamato soltanto “presenze” non basta a stabilire
+            se siano persone, ingressi ripetuti o pernottamenti.
 
-    with eventi_metodo:
-        st.subheader("Base e ipotesi della simulazione")
+            ### 2. Provenienza e pernottamento
 
-        st.write(
-            "La simulazione parte dalle righe territoriali "
-            "dell’Event Master. Non assegna arbitrariamente "
-            "a una regione le righe contenenti più NUTS2. "
-            "Le righe non interpretabili vengono segnalate."
-        )
+            La quota proveniente da fuori territorio e la quota che pernotta
+            sono parametri distinti.
 
-        st.write(
-            "**Persone:** visitatori unici esplicitamente "
-            "documentati/stimati oppure attendance classificata "
-            "come persone o partecipanti.\n\n"
-            "**Equivalenti:** proxy già presente nel file "
-            "oppure ingressi cumulativi divisi per la durata. "
-            "Non sono visitatori unici.\n\n"
-            "**Biglietti:** non vengono convertiti automaticamente "
-            "in persone. In assenza di una base persone o equivalente "
-            "documentata, la riga resta fuori dal calcolo."
-        )
+            Il cursore pernottanti va da 0 a 100:
+            a zero nessuno dei non residenti considerati pernotta;
+            a cento pernottano tutti.
 
-        st.subheader("Quota di pernottanti")
+            Se la provenienza non è documentata, il parametro resta
+            un'ipotesi di scenario. Il valore iniziale del 100% non significa
+            che tutti i partecipanti provengano effettivamente da fuori.
 
-        st.write(
-            "Ogni sport ha uno slider 0–100%, inizialmente al 25%. "
-            "I preset globali sono 5%, 15%, 25%, 40% e 60%. "
-            "Non vengono imposti minimi legati ai tifosi ospiti."
-        )
+            La provenienza da fuori regione non coincide con la nazionalità:
+            un italiano può essere non residente nella regione
+            e uno straniero può risiedervi.
 
-        st.write(
-            "La percentuale si applica alla base mostrata. "
-            "Solo se quella base rappresenta effettivamente "
-            "visitatori fuori regione può essere interpretata "
-            "come quota di tali visitatori che pernotta."
-        )
+            ### 3. Durata del soggiorno
 
-        st.subheader("Notti e durata")
+            Le notti applicate sono il minimo tra:
+            notti scelte, durata dell'evento e cinque notti.
 
-        st.write(
-            "Il valore iniziale è una notte. "
-            "La scelta è indipendente per sport. "
-            "Per ogni evento si applica il minore fra "
-            "notti richieste, durata dell’evento e cinque notti."
+            Una data finale assente viene inizialmente trattata come
+            evento di un giorno, ma è modificabile in Verifica dati.
+
+            Questa convenzione non include eventuali soggiorni
+            prima o dopo l'evento.
+
+            ### 4. Territorio e mese
+
+            Per eventi su più territori il totale non deve essere
+            duplicato integralmente in ogni regione.
+
+            Il riparto uniforme proposto deve essere confermato.
+            Se i volumi sono già regionali, occorre invece impostare
+            quote coerenti con la loro definizione: non confermare
+            automaticamente il riparto di un totale nazionale.
+
+            Gli eventi a cavallo di più mesi sono distribuiti in proporzione
+            ai giorni di esposizione. È una convenzione uniforme,
+            non un andamento giornaliero osservato.
+            """
         )
 
         st.latex(
-            r"n_e=\min(n_s,D_e,5)"
+            r"N_{e,r,m}=B_e\cdot w_{e,r}\cdot f_e"
+            r"\cdot q_e\cdot n_e\cdot t_{e,m}"
+        )
+        st.markdown(
+            """
+            Dove **B** è la base, **w** la quota territoriale,
+            **f** la quota da fuori territorio, **q** la quota pernottanti,
+            **n** le notti e **t** il peso temporale.
+
+            Le percentuali sono espresse nella formula come frazioni
+            comprese tra zero e uno.
+            """
+        )
+        st.latex(
+            r"R_{r,m}=100\cdot"
+            r"\frac{\text{pernottamenti simulati}_{r,m}}"
+            r"{\text{pernottamenti osservati}_{r,m}}"
+        )
+        st.markdown(
+            """
+            ### 5. Interpretazione del rapporto
+
+            Il rapporto misura la dimensione dello scenario rispetto
+            alla domanda osservata. Non è la quota di turismo
+            attribuibile causalmente agli eventi.
+
+            Il numeratore può includere pernottamenti in strutture
+            non coperte dal denominatore Eurostat: in questo caso
+            il rapporto è un confronto esplorativo tra perimetri diversi.
+
+            La soglia del **2%** serve a selezionare casi da approfondire.
+            Non è una soglia di significatività statistica.
+
+            Le basi persone ed equivalenti restano separate.
+            Anche all'interno della stessa base, somme tra eventi
+            possono includere partecipanti o soggiorni ripetuti.
+
+            Lo sci di fondo resta visibile nel catalogo,
+            ma è escluso dal perimetro della simulazione.
+            """
         )
 
-        st.subheader("Eventi su più mesi")
+    with previsione:
+        st.markdown(
+            """
+            ### Cosa esegue questa dashboard
+
+            L'app legge i CSV di forecast già prodotti.
+            Non riaddestra il modello e non ricalcola i parametri
+            del procedimento che ha generato quei file.
+
+            Prudente, Intermedio ed Espansivo sono scenari.
+            Non sono automaticamente intervalli di confidenza
+            o probabilità che il risultato reale cada in un intervallo.
+
+            ### Come documentare il modello a monte
+
+            La documentazione del forecast deve riportare:
+
+            - periodo di stima e trattamento degli anni pandemici;
+            - anno base e gestione di eventuali mesi mancanti;
+            - formule e parametri di crescita;
+            - conservazione o modifica della stagionalità;
+            - metodo di riparto territoriale;
+            - validazione su periodi non usati nella stima.
+
+            Questi elementi non possono essere verificati
+            osservando soltanto i CSV finali.
+
+            ### Validazione consigliata
+
+            Confrontare il modello con almeno una previsione stagionale
+            semplice: lo stesso mese dell'anno precedente.
+
+            Usare finestre temporali successive senza impiegare
+            informazioni future nella stima. Valutare errore assoluto,
+            WAPE e bias sullo stesso campione per tutti i modelli.
+
+            Per un riparto provinciale a quote costanti,
+            la somma delle province deve riconciliare con la regione.
+            Le quote costanti non catturano cambiamenti
+            nella distribuzione territoriale della domanda.
+            """
+        )
 
         st.latex(
-            r"d_{e,m}=\max\left("
-            r"0,\min(f_e,f_m)-\max(i_e,i_m)+1"
-            r"\right)"
+            r"\mathrm{WAPE}=100\cdot"
+            r"\frac{\sum_t|y_t-\hat{y}_t|}{\sum_t|y_t|}"
         )
-
         st.latex(
-            r"w_{e,m}=\frac{d_{e,m}}{D_e}"
+            r"\mathrm{Bias}=100\cdot"
+            r"\frac{\sum_t(\hat{y}_t-y_t)}{\sum_t y_t}"
         )
-
-        st.write(
-            "Un evento dal 25 gennaio all’8 febbraio ha "
-            "sette giorni a gennaio e otto a febbraio. "
-            "Le notti teoriche vengono distribuite "
-            "proporzionalmente ai giorni di esposizione."
-        )
-
         st.caption(
-            "È una ripartizione uniforme dichiarata, "
-            "non una ricostruzione di soggiorni giornalieri. "
-            "Non identifica arrivi anticipati o partenze posticipate."
-        )
-
-        st.subheader("Formula")
-
-        st.latex(
-            r"T_{e,r,m}=B_{e,r}\times q_s\times n_e\times w_{e,m}"
-        )
-
-        st.write(
-            "B è la base persone o equivalente; q è la quota "
-            "di pernottanti; n sono le notti applicate; "
-            "w è la quota temporale attribuita al mese."
-        )
-
-        st.latex(
-            r"I_{e,r,m}=100\times\frac{T_{e,r,m}}{Y_{r,m}}"
-        )
-
-        st.write(
-            "Y è la domanda Eurostat osservata nella stessa "
-            "regione e nello stesso mese. "
-            "Se Y manca o non è positivo, l’incidenza "
-            "non viene calcolata."
-        )
-
-        st.info(
-            "Il 2% è una soglia esplorativa, non un test "
-            "di significatività. Superarla suggerisce "
-            "un approfondimento, non dimostra un effetto."
-        )
-
-        st.write(
-            "**Perimetro:** il simulatore non osserva il canale "
-            "di prenotazione degli spettatori. "
-            "Se le notti teoriche includono hotel, ospitalità "
-            "privata o altri canali, il rapporto con Eurostat "
-            "è un confronto di scala, non una quota verificata "
-            "del mercato delle piattaforme."
-        )
-
-        st.write(
-            "Persone ed equivalenti rimangono separati. "
-            "La somma fra eventi non deduplica persone "
-            "che partecipano a più manifestazioni."
-        )
-
-    with forecast_metodo:
-        st.subheader("Previsioni caricate dai CSV")
-
-        st.write(
-            "La dashboard legge gli output previsionali; "
-            "non addestra un modello durante la consultazione. "
-            "L’impostazione dichiarata usa stagionalità 2025, "
-            "componente iniziale 50% nazionale e 50% regionale "
-            "e tre ipotesi di rallentamento."
-        )
-
-        st.latex(
-            r"g_{r,0}=0.5g_{IT,0}+0.5g^{regionale}_{r,0}"
-        )
-
-        st.write(
-            "Il codice che genera i CSV resta la fonte "
-            "per finestra di stima, tassi e parametri esatti. "
-            "Non vengono dedotti dal nome dello scenario."
-        )
-
-        tabella(pd.DataFrame([
-            [
-                "Prudente",
-                "Crescita più contenuta fra le ipotesi adottate.",
-            ],
-            [
-                "Intermedio",
-                "Traiettoria intermedia, non probabilità maggiore.",
-            ],
-            [
-                "Espansivo",
-                "Crescita più elevata fra le ipotesi adottate.",
-            ],
-        ], columns=["Scenario", "Lettura"]))
-
-        st.write(
-            "Gli scenari non sono intervalli di confidenza. "
-            "La distanza fra le curve rappresenta sensibilità "
-            "alle ipotesi, non tutta l’incertezza."
-        )
-
-        st.subheader("Quote provinciali")
-
-        st.latex(
-            r"w_{p|r,2025}="
-            r"\frac{Y_{p,2025}}{\sum_{j\in r}Y_{j,2025}}"
-        )
-
-        st.latex(
-            r"\widehat Y_{p,t,s}="
-            r"w_{p|r,2025}\widehat Y_{r,t,s}"
-        )
-
-        st.write(
-            "Le quote provinciali del 2025 restano costanti. "
-            "Non si tratta di modelli provinciali indipendenti. "
-            "La somma provinciale deve riconciliarsi "
-            "con il forecast regionale."
-        )
-
-        st.subheader("Rapporto con gli eventi")
-
-        st.write(
-            "La simulazione sportiva non viene sommata al forecast. "
-            "Una baseline costruita sullo storico può già "
-            "incorporare la normale presenza di eventi ricorrenti: "
-            "non è automaticamente un controfattuale senza sport."
-        )
-
-        st.caption(
-            "Nei grafici lo storico prevale sui mesi già osservati. "
-            "I totali annuali restano quelli dei CSV: la loro "
-            "coerenza con le osservazioni sovrapposte va "
-            "verificata nello script di generazione."
+            "Le metriche non sono definite quando il rispettivo "
+            "denominatore è zero. Qui non vengono riportati risultati "
+            "di validazione non ricalcolati dai dati di test."
         )
 
     with qualita:
-        st.subheader("Controlli eseguiti sui dati")
+        st.subheader("Controlli dei file caricati")
 
-        controlli_output = []
+        controlli = []
 
-        for nome, df, chiavi, misure in [
-            (
-                "Master NUTS2",
-                reg,
-                ["nuts2_code", "year", "month"],
-                ["guest_nights_total"],
-            ),
-            (
-                "Master NUTS3",
-                prov,
-                ["nuts3_code", "year"],
-                ["guest_nights_total"],
-            ),
-            (
-                "Forecast NUTS2",
-                fr,
-                ["nuts2_code", "year", "month"],
-                [f"gn_{s.lower()}" for s in SCENARI],
-            ),
-            (
-                "Forecast NUTS3",
-                fp,
-                ["nuts3_code", "year"],
-                [f"forecast_{s.lower()}" for s in SCENARI],
-            ),
-        ]:
-            valori = df[misure].apply(
-                pd.to_numeric,
-                errors="coerce",
-            )
-
-            errori = {
-                "Chiavi mancanti": int(
-                    df[chiavi].isna().any(axis=1).sum()
-                ),
-                "Chiavi duplicate": int(
-                    df.duplicated(chiavi).sum()
-                ),
-                "Valori mancanti, negativi o infiniti": int(
-                    (
-                        valori.isna()
-                        | valori.lt(0)
-                        | valori.isin([
-                            float("inf"),
-                            -float("inf"),
-                        ])
-                    ).sum().sum()
-                ),
-            }
-
-            for controllo, n in errori.items():
-                controlli_output.append({
-                    "Dataset": nome,
-                    "Controllo": controllo,
-                    "Esito": "OK" if n == 0 else "DA VERIFICARE",
-                    "Anomalie": n,
+        for chiave in SCHEMI:
+            df = DATI[chiave]
+            if df.empty:
+                controlli.append({
+                    "File": FILES[chiave].name,
+                    "Stato": ERRORI.get(chiave, "Vuoto"),
+                    "Righe": 0,
+                    "Valori mancanti": None,
+                    "Valori negativi": None,
                 })
+                continue
 
-        for s in SCENARI:
-            regionale = (
-                fr.groupby(["nuts2_code", "year"])[
-                    f"gn_{s.lower()}"
-                ]
-                .sum(min_count=1)
-            )
-
-            provinciale = (
-                fp.groupby(["nuts2_code", "year"])[
-                    f"forecast_{s.lower()}"
-                ]
-                .sum(min_count=1)
-            )
-
-            verifica = pd.concat([
-                regionale.rename("Regione"),
-                provinciale.rename("Province"),
-            ], axis=1)
-
-            scarto = (
-                verifica["Regione"] - verifica["Province"]
-            ).abs()
-
-            anomalie = int(
-                (
-                    verifica.isna().any(axis=1)
-                    | scarto.gt(1)
-                ).sum()
-            )
-
-            controlli_output.append({
-                "Dataset": "Forecast",
-                "Controllo": f"Riconciliazione NUTS3/NUTS2 · {s}",
-                "Esito": (
-                    "OK"
-                    if anomalie == 0 and not verifica.empty
-                    else "DA VERIFICARE"
-                ),
-                "Anomalie": anomalie,
+            numeriche = [
+                c for c in SCHEMI[chiave]
+                if c.startswith(("guest_nights", "gn_", "forecast_"))
+            ]
+            controlli.append({
+                "File": FILES[chiave].name,
+                "Stato": "Letto; chiavi valide e non duplicate",
+                "Righe": len(df),
+                "Valori mancanti": int(df[numeriche].isna().sum().sum()),
+                "Valori negativi": int(df[numeriche].lt(0).sum().sum()),
             })
 
-        tabella(
-            pd.DataFrame(controlli_output),
-            "controlli_dati.csv",
-        )
+        tabella(pd.DataFrame(controlli), "controlli_file.csv")
 
-        st.caption(
-            "Tolleranza di riconciliazione: una guest night. "
-            "Un esito OK verifica il requisito indicato, "
-            "non certifica l’intera metodologia."
-        )
+        if not reg.empty:
+            copertura = (
+                reg.groupby(["nuts2_code", "year"])
+                .agg(
+                    Mesi_presenti=("month", "nunique"),
+                    Mesi_con_valore=("guest_nights_total", "count"),
+                )
+                .reset_index()
+            )
+            incompleti = copertura[
+                copertura["Mesi_presenti"].ne(12)
+                | copertura["Mesi_con_valore"].ne(12)
+            ]
 
-        st.subheader("WAPE e bias")
+            with st.expander("Copertura annuale regionale"):
+                st.caption(
+                    "Un anno con meno di 12 mesi non è un totale annuale completo. "
+                    "L'assenza di un'intera regione deve essere verificata anche "
+                    "rispetto al perimetro atteso della fonte."
+                )
+                tabella(
+                    incompleti if not incompleti.empty else copertura,
+                    "copertura_regioni_anni.csv",
+                )
 
-        st.latex(
-            r"WAPE=100\times"
-            r"\frac{\sum_i|Y_i-\widehat Y_i|}{\sum_iY_i}"
-        )
+        if not fr.empty and not fp.empty:
+            verifiche = []
 
-        st.write(
-            "Il WAPE misura l’errore assoluto complessivo "
-            "rispetto al volume osservato. "
-            "Può nascondere errori importanti nei territori "
-            "piccoli, perché pesa maggiormente quelli grandi."
-        )
+            for scenario in SCENARI:
+                regionale = aggrega(
+                    fr, ["nuts2_code", "year"],
+                    "gn_" + scenario.lower(),
+                ).rename(
+                    columns={"gn_" + scenario.lower(): "Totale regionale"}
+                )
+                provinciale = aggrega(
+                    fp, ["nuts2_code", "year"],
+                    "forecast_" + scenario.lower(),
+                ).rename(
+                    columns={
+                        "forecast_" + scenario.lower(): "Somma province"
+                    }
+                )
+                confronto = regionale.merge(
+                    provinciale,
+                    on=["nuts2_code", "year"],
+                    how="outer",
+                    validate="one_to_one",
+                )
+                confronto["Scenario"] = scenario
+                confronto["Scarto"] = (
+                    confronto["Somma province"]
+                    - confronto["Totale regionale"]
+                )
+                verifiche.append(confronto)
 
-        st.latex(
-            r"Bias=100\times"
-            r"\frac{\sum_i(\widehat Y_i-Y_i)}{\sum_iY_i}"
-        )
-
-        st.caption(
-            "Bias negativo: sottostima. "
-            "Bias positivo: sovrastima. "
-            "Le metriche richiedono un denominatore positivo."
-        )
-
-        st.subheader("Risultati documentati nel progetto")
-
-        tabella(pd.DataFrame([
-            ["Stagionale 2024", "11,11%", "Test storico"],
-            ["Media 2023–2024", "17,13%", "Test storico"],
-            ["Prudente", "7,48%", "Test 2025 dichiarato"],
-            ["Intermedio", "8,39%", "Test 2025 dichiarato"],
-            ["Espansivo", "9,89%", "Test 2025 dichiarato"],
-        ], columns=["Metodo", "WAPE", "Campione dichiarato"]))
-
-        st.warning(
-            "Questi backtest sono riportati, non ricalcolati "
-            "dalla dashboard. Campioni, finestre e parametri "
-            "devono essere allineati prima di confrontarli "
-            "come una classifica omogenea."
-        )
-
-        st.write(
-            "La validazione deve usare solo informazioni "
-            "disponibili alla data della previsione, separare "
-            "cronologicamente training e test e confrontare "
-            "i modelli sullo stesso campione. "
-            "Quote e parametri del test non devono usare "
-            "informazioni future."
-        )
-
-    with limiti:
-        st.subheader("Limiti interpretativi")
+            with st.expander("Riconciliazione forecast regioni–province"):
+                tabella(
+                    pd.concat(verifiche, ignore_index=True),
+                    "riconciliazione_forecast.csv",
+                )
 
         st.markdown(
-            "- **Aggregazione:** un evento locale può essere "
-            "diluito nel dato regionale mensile.\n"
-            "- **Concomitanza:** altri eventi, festività, prezzi, "
-            "trasporti e offerta possono influenzare la domanda.\n"
-            "- **Sostituzione:** gli ospiti sportivi possono "
-            "rimpiazzare altri visitatori.\n"
-            "- **Spostamenti:** notti trasferite tra mesi o regioni "
-            "non equivalgono sempre a un aumento nazionale.\n"
-            "- **Attendance:** accessi e biglietti non sono "
-            "automaticamente persone uniche.\n"
-            "- **Copertura:** il catalogo non è un censimento "
-            "completo di tutte le manifestazioni italiane."
+            """
+            ### Limiti dell'interpretazione
+
+            Un aumento dei pernottamenti durante un evento può dipendere
+            anche da stagionalità, festività, prezzi, trasporti,
+            condizioni economiche o altri eventi.
+
+            L'evento può spostare domanda nel tempo o sostituire altri turisti.
+            Alcuni partecipanti avrebbero visitato comunque la regione.
+
+            Per stimare un effetto causale servono un controfattuale credibile,
+            territori e periodi comparabili, verifica delle tendenze precedenti
+            e controlli per eventi contemporanei.
+
+            Il confronto prima/dopo o con lo stesso mese dell'anno precedente,
+            da solo, non soddisfa questi requisiti.
+            """
         )
 
-        st.subheader("Sviluppo successivo")
-
-        st.write(
-            "Per stimare un effetto incrementale occorre "
-            "costruire un controfattuale credibile. "
-            "Panel, event study e difference-in-differences "
-            "sono possibili sviluppi da concordare, "
-            "non analisi già svolte da questa app."
-        )
-
-        st.write(
-            "Prima di formulare conclusioni causali servono "
-            "verifiche sui trend precedenti, anticipazioni, "
-            "territori di controllo, eventi concomitanti, "
-            "incertezza e robustezza delle stime."
-        )
-
-        st.success(
-            "Prima dati e ipotesi trasparenti e riproducibili; "
-            "poi maggiore complessità solo se necessaria "
-            "alla domanda di ricerca."
-        )
-
-
-# ============================================================
-# 13. FOOTER
-# ============================================================
 
 st.divider()
-
 st.caption(
-    "Airbnb&Sports · "
-    + VERSIONE
-    + " · Dati osservati, simulazioni e forecast distinti"
+    f"Airbnb&Sports · {VERSIONE} · "
+    f"[SBL Consultancy]({SITO_AZIENDA})"
 )
-
-st.markdown(
-    f"[SBL Consultancy · sito aziendale]({SITO_AZIENDA})"
-)
-
-# FINE DEL FILE APP.PY
