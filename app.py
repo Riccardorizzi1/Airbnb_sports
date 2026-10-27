@@ -2368,42 +2368,116 @@ else:
     with fonti_tab:
         st.markdown(
             """
-            ### Tre livelli distinti
+            ### Obiettivo dell'analisi
 
-            **Osservato:** pernottamenti rilevati nell'ambito
-            coperto dalla fonte Eurostat.
+            Airbnb&Sports mette in relazione il calendario degli eventi
+            sportivi con la domanda turistica dei territori italiani.
 
-            **Simulato:** pernottamenti teorici ottenuti applicando
-            ipotesi alle basi degli eventi.
+            L'obiettivo è individuare eventi, regioni e periodi nei quali
+            la domanda di pernottamento associabile allo sport potrebbe
+            assumere una dimensione rilevante rispetto alla domanda
+            turistica osservata.
 
-            **Previsto:** scenari di forecast già elaborati.
-            I risultati del simulatore non vengono aggiunti
-            automaticamente alle previsioni.
+            La dashboard combina dati osservati, informazioni sugli eventi
+            e simulazioni. Questi elementi hanno significati diversi
+            e devono essere interpretati separatamente.
 
-            ### Fonti
+            ### Tre livelli di informazione
 
-            `tour_ce_omn12` è il riferimento mensile NUTS2
-            del progetto.
+            **Dati osservati.** Descrivono i pernottamenti registrati
+            nell'ambito coperto dalla fonte Eurostat. Sono il riferimento
+            utilizzato per analizzare dimensione e andamento della domanda.
 
-            `tour_ce_oan3` è il riferimento annuale NUTS3.
+            **Simulazioni degli eventi.** Applicano ipotesi esplicite
+            alle basi di pubblico disponibili. Rappresentano scenari
+            teorici di pernottamento, non prenotazioni osservate
+            né una misura dell'incremento causato dagli eventi.
 
-            Tre ospiti per due notti generano sei pernottamenti.
-            Questa misura è diversa da prenotazioni, persone uniche
-            e notti di occupazione dell'alloggio.
+            **Forecast.** Mostrano i tre scenari già elaborati nel progetto
+            per gli anni futuri. Le ipotesi impostate nel simulatore
+            non modificano automaticamente questi risultati.
 
-            La copertura della fonte non coincide automaticamente
-            con tutto il turismo regionale o con il solo Airbnb.
+            ### Fonti turistiche e unità di analisi
 
-            ### Ruolo dei file
+            Il riferimento mensile del progetto è Eurostat
+            **`tour_ce_omn12`**, utilizzato a livello
+            **NUTS2 × mese**.
 
-            Il **master Excel** alimenta il catalogo:
-            eventi, fonti, note e qualità.
+            Le serie **`tour_ce_oan3`** sono utilizzate a livello
+            **NUTS3 × anno**.
 
-            **`screening_eventi_completo.csv`** alimenta il simulatore:
-            basi già elaborate, territori, mesi e denominatori.
+            L'analisi degli eventi viene quindi confrontata con
+            la domanda mensile regionale. Il dato provinciale annuale
+            offre un dettaglio territoriale diverso, ma non consente
+            di osservare direttamente la domanda provinciale
+            nel singolo mese dell'evento.
 
-            La dashboard non interpreta nuovamente le colonne
-            del master per ricostruire le basi.
+            La dashboard non crea dati giornalieri o mensili provinciali
+            a partire dalle osservazioni annuali.
+
+            Le unità NUTS sono unità statistiche territoriali:
+            la loro versione deve essere coerente con i codici
+            presenti nei dati e nei confini cartografici.
+
+            ### Che cosa misura un pernottamento
+
+            I pernottamenti degli ospiti, o *guest nights*,
+            misurano il numero di notti trascorse dagli ospiti.
+
+            **Esempio:** tre ospiti che soggiornano per due notti
+            generano sei pernottamenti.
+
+            Il numero di pernottamenti è quindi diverso dal numero
+            di persone uniche, di prenotazioni e di notti
+            di occupazione dell'alloggio.
+
+            Un aumento dei pernottamenti può dipendere da più ospiti,
+            da soggiorni più lunghi o da una combinazione dei due.
+            Da questa misura, da sola, non è possibile ricavare
+            il numero di individui distinti.
+
+            ### Perimetro della fonte
+
+            La fonte Eurostat riguarda gli alloggi e le piattaforme
+            compresi nella specifica rilevazione.
+
+            Non coincide automaticamente con tutto il turismo regionale,
+            con tutta la ricettività o con il solo mercato Airbnb.
+
+            Inoltre, i pernottamenti misurano domanda e utilizzo:
+            non sono una misura dei prezzi, dei ricavi o della redditività
+            degli alloggi. Un eventuale indice generale dei prezzi
+            non può essere interpretato direttamente come prezzo Airbnb.
+
+            ### Ruolo dei file nel progetto
+
+            Il **master Excel degli eventi** alimenta il catalogo.
+            Conserva informazioni descrittive, quantità originali,
+            fonti, note e indicazioni sulla qualità.
+
+            **`screening_eventi_completo.csv`** alimenta il simulatore.
+            Contiene le basi già elaborate, la classificazione,
+            il collegamento territoriale, la ripartizione mensile
+            e il denominatore turistico.
+
+            I **CSV di forecast** contengono le previsioni
+            già prodotte a monte.
+
+            La dashboard non ricostruisce le basi degli eventi
+            interpretando nuovamente le colonne del master.
+            Utilizza lo screening per mantenere coerenti
+            le decisioni già applicate nel progetto.
+
+            ### Come leggere i conteggi
+
+            Un evento può interessare più territori e più mesi.
+            Per questo il numero di eventi può essere inferiore
+            al numero di righe territoriali e al numero
+            di righe evento–regione–mese.
+
+            Questi conteggi descrivono livelli diversi del dataset:
+            una riga mensile aggiuntiva non implica necessariamente
+            la presenza di un nuovo evento.
 
             [Metadati Eurostat](https://ec.europa.eu/eurostat/cache/metadata/en/tour_ce_esms.htm)
             """
@@ -2412,49 +2486,173 @@ else:
     with eventi_tab:
         st.markdown(
             """
-            ### Basi di calcolo
+            ### 1. Dalla partecipazione alla base di simulazione
 
-            **Persone:** la base disponibile è trattata come persone,
-            mantenendo il metodo documentato nel file.
+            Le fonti degli eventi non misurano sempre la stessa cosa.
+            Possono riportare persone, partecipanti, ingressi cumulativi,
+            biglietti pubblicati o quantità stimate.
 
-            **Equivalenti da presenze:** la base proxy è già stata
-            elaborata nello screening. Non viene divisa nuovamente
-            per la durata.
+            Queste misure non sono intercambiabili. In particolare,
+            una stessa persona può generare più ingressi o acquistare
+            più biglietti durante un evento.
 
-            **Equivalenti da biglietti:** scenario basato su biglietti
-            pubblicati o stimati. Non identifica visitatori unici
-            e non dimostra l'effettiva partecipazione.
+            La dashboard conserva la classificazione dello screening
+            e distingue tre gruppi nei risultati.
 
-            I tre gruppi sono mostrati separatamente.
+            **Persone.** La base disponibile è trattata come persone,
+            mantenendo il metodo documentato nel file. La presenza
+            in questo gruppo non implica che ogni valore sia un conteggio
+            esatto: alcune basi possono essere stimate o riferite
+            a partecipanti, secondo quanto documentato nella fonte.
 
-            ### Territorio e mesi
+            **Equivalenti da presenze.** La base proxy è già stata
+            elaborata nello screening. Quando deriva da presenze
+            cumulative divise per la durata, rappresenta
+            un equivalente giornaliero.
 
-            I valori sono già territorializzati.
-            La dashboard non applica nuovi riparti tra regioni.
+            **Equivalenti da biglietti.** La base deriva da biglietti
+            pubblicati o stimati e dal trattamento già applicato
+            nello screening. Non identifica persone uniche
+            né dimostra l'effettivo utilizzo dei biglietti.
 
-            Gli eventi sono già distribuiti sulle righe mensili.
-            La quota del mese viene applicata una sola volta.
+            I tre gruppi rimangono separati: non vengono presentati
+            come un unico conteggio omogeneo di turisti.
 
-            La ripartizione in proporzione ai giorni è una
-            convenzione uniforme, non una distribuzione osservata
-            dei pernottamenti.
+            ### 2. Significato della base equivalente
 
-            ### Quote e notti
+            Dividere un volume cumulativo per la durata dell'evento
+            permette di costruire una base convenzionale
+            per l'analisi esplorativa.
 
-            La quota pernottanti varia da 0 a 100%, con default 25%.
-            I preset sono 5%, 15%, 25%, 40% e 60%.
+            **Esempio:** 300.000 ingressi distribuiti su tre giorni
+            corrispondono a 100.000 ingressi medi giornalieri equivalenti.
+            Questo calcolo non dimostra che abbiano partecipato
+            100.000 persone distinte.
 
-            Il parametro si applica alla base disponibile.
-            Se la base include tutti i partecipanti, incorpora
-            implicitamente anche l'ipotesi sulla provenienza.
-            Non è automaticamente una quota riferita ai soli
-            non residenti.
+            Il risultato dipende dalla frequenza delle visite,
+            dalla distribuzione delle presenze tra i giorni
+            e dalla definizione del dato originale.
 
-            Non sono imposti minimi per tifosi ospiti o trasferte.
+            Nel caso dei biglietti, si aggiunge l'incertezza
+            sul loro utilizzo e sulla possibilità che più biglietti
+            appartengano alla stessa persona.
 
-            Le notti partono da una e sono limitate al minimo
-            tra la durata del singolo evento e cinque.
-            Non includono soggiorni prima o dopo l'evento.
+            La normalizzazione è quindi una convenzione di scenario,
+            non una conversione validata in visitatori unici.
+
+            ### 3. Utilizzo delle basi già elaborate
+
+            Il simulatore usa la colonna **`pubblico_equivalente`**
+            dello screening.
+
+            Per le righe classificate **PERSONE**, questa colonna
+            contiene la base persone. Il nome tecnico della colonna
+            non modifica la classificazione della riga.
+
+            Per le righe classificate **EQUIVALENTE**, contiene
+            la base proxy già elaborata.
+
+            La dashboard non divide nuovamente queste basi
+            per la durata dell'evento e non sostituisce
+            i risultati dello screening con nuove interpretazioni
+            automatiche del master.
+
+            Una quantità approssimativa, stimata o riferita
+            a un limite inferiore mantiene i limiti del dato originale.
+            La disponibilità di un numero non elimina
+            l'incertezza della fonte.
+
+            ### 4. Attribuzione territoriale
+
+            Le basi contenute nello screening sono già attribuite
+            alle rispettive righe territoriali.
+
+            La dashboard non applica un ulteriore riparto
+            in parti uguali tra le regioni.
+
+            Questo è importante per gli eventi con più sedi:
+            dividere nuovamente valori già territorializzati
+            ridurrebbe artificialmente la base di calcolo.
+
+            Allo stesso tempo, il collegamento a una regione ospitante
+            non dimostra che tutti i pernottamenti associati
+            all'evento avvengano in quella regione.
+            Alcuni partecipanti potrebbero soggiornare altrove.
+
+            ### 5. Quota pernottanti
+
+            Il cursore per sport varia da **0 a 100%**,
+            con valore iniziale **25%**.
+
+            I preset comuni sono **5%, 15%, 25%, 40% e 60%**.
+            Sono ipotesi di sensibilità, non percentuali
+            empiricamente accertate per ogni sport.
+
+            Il parametro si applica alla base disponibile:
+            a 0% non vengono simulati pernottamenti;
+            a 100% tutta la base considerata entra nello scenario
+            di pernottamento.
+
+            Se la base include tutti i partecipanti, il parametro
+            incorpora implicitamente anche l'ipotesi
+            sulla provenienza.
+
+            Se una base fosse già limitata ai non residenti,
+            la quota avrebbe invece un significato condizionato
+            a quel gruppo.
+
+            Non bisogna quindi interpretare automaticamente
+            il cursore come la percentuale di soli visitatori
+            provenienti da fuori regione che pernottano.
+
+            Per le basi equivalenti il parametro opera su una proxy:
+            non rappresenta una probabilità individuale osservata.
+
+            Non viene aggiunto un secondo moltiplicatore automatico
+            sulla provenienza e non vengono imposti minimi
+            per tifosi ospiti o trasferte.
+
+            ### 6. Notti per pernottante
+
+            Le notti partono da **una** e possono essere modificate
+            indipendentemente dalla quota pernottanti.
+
+            Per ciascun evento, il valore applicato è il minimo tra:
+
+            - le notti scelte per lo sport;
+            - la durata del singolo evento;
+            - cinque notti.
+
+            Questa regola limita scenari incompatibili
+            con il perimetro temporale adottato, ma non afferma
+            che la durata reale dei soggiorni coincida
+            con quella dell'evento.
+
+            Non sono inclusi soggiorni prima o dopo l'evento.
+            Per grandi manifestazioni, permanenze più lunghe
+            richiederebbero un'estensione esplicita del metodo.
+
+            ### 7. Distribuzione tra i mesi
+
+            Gli eventi sono già suddivisi in righe mensili.
+
+            La colonna **`quota_mese`** indica la proporzione
+            della durata attribuita a ciascun mese.
+            La dashboard la applica una sola volta.
+
+            **Esempio:** un evento di tre giorni, due in agosto
+            e uno in settembre, ha pesi temporali pari
+            rispettivamente a 2/3 e 1/3.
+
+            Questa è una ripartizione uniforme in funzione dei giorni.
+            Non descrive necessariamente la distribuzione reale
+            del pubblico o delle notti di soggiorno.
+
+            Inoltre, un soggiorno può attraversare il confine del mese
+            anche quando l'evento non lo attraversa:
+            questo dettaglio non viene ricostruito dalla simulazione.
+
+            ### 8. Formula del simulatore
             """
         )
 
@@ -2464,16 +2662,28 @@ else:
 
         st.markdown(
             """
-            **B** è `pubblico_equivalente`, già elaborato.
-            **q** è la quota pernottanti divisa per 100.
-            **n** sono le notti applicate.
-            **w** è `quota_mese`.
+            Dove:
 
-            Per le righe classificate PERSONE, la colonna
-            `pubblico_equivalente` contiene la base persone:
-            il nome tecnico della colonna non cambia la classe.
+            - **B** è la base già elaborata e territorializzata,
+              contenuta in `pubblico_equivalente`;
+            - **q** è la quota pernottanti espressa come frazione,
+              quindi 25% corrisponde a 0,25;
+            - **n** sono le notti applicate al singolo evento;
+            - **w** è il peso temporale `quota_mese`.
 
-            ### Rapporto con la domanda regionale
+            **Esempio:** una base di 10.000 persone, una quota del 25%,
+            due notti e un peso mensile del 50% producono
+            2.500 pernottamenti simulati in quel mese.
+
+            A parità delle altre ipotesi, il risultato varia
+            proporzionalmente alla quota e alle notti,
+            entro i limiti applicati alle notti.
+
+            Il confronto tra preset serve quindi a mostrare
+            quanto il risultato dipenda dalle ipotesi,
+            non a identificare automaticamente lo scenario più probabile.
+
+            ### 9. Confronto con la domanda regionale
             """
         )
 
@@ -2483,62 +2693,137 @@ else:
 
         st.markdown(
             """
-            Il denominatore è quello salvato nello screening,
-            relativo alla stessa regione e allo stesso mese.
+            **GN** è il numero di pernottamenti Eurostat
+            della stessa regione e dello stesso mese,
+            salvato nello screening.
 
-            Se manca o non è positivo, il rapporto resta
-            non disponibile.
+            Se il denominatore manca o non è positivo,
+            il rapporto resta non disponibile.
+            La simulazione dell'evento può comunque essere mostrata.
 
-            Il 2% è una soglia esplorativa, non una soglia
-            di significatività statistica.
+            **Esempio:** 2.500 pernottamenti simulati rispetto
+            a 100.000 pernottamenti osservati corrispondono al 2,5%.
 
-            Il rapporto indica una dimensione relativa:
-            non misura il turismo causato dall'evento.
+            Questo significa che lo scenario ha una dimensione
+            pari al 2,5% del riferimento osservato.
+            Non significa che l'evento abbia causato
+            il 2,5% del turismo regionale.
 
             Il numeratore può comprendere pernottamenti in alloggi
-            fuori dal perimetro Eurostat. In quel caso il confronto
-            riguarda perimetri diversi.
+            non coperti dalla fonte Eurostat. In quel caso
+            il rapporto confronta perimetri diversi e va letto
+            come indicatore esplorativo, non come quota di mercato.
 
-            Le somme tra eventi possono comprendere persone
-            o soggiorni ripetuti: non sono un conteggio
-            di turisti unici aggiuntivi.
+            ### 10. Soglia del 2% e aggregazioni
+
+            Il **2%** è una soglia di screening utilizzata
+            per individuare casi da approfondire.
+            Non è una soglia di significatività statistica
+            e non separa automaticamente eventi importanti
+            da eventi privi di effetti.
+
+            Il conteggio sopra soglia nel simulatore riguarda
+            le righe **evento–regione–mese**, non gli eventi unici.
+
+            Nel riepilogo mensile, i risultati degli eventi
+            vengono aggregati per regione, mese e tipo di base.
+            Il denominatore turistico di quel mese viene utilizzato
+            una volta per il relativo rapporto aggregato.
+
+            Le somme fra eventi possono includere gli stessi
+            individui o soggiorni. Non rappresentano quindi
+            un conteggio di turisti unici aggiuntivi.
+
+            ### 11. Arrotondamenti e confrontabilità
+
+            Il simulatore usa basi e quote mensili salvate nel CSV.
+            Il loro arrotondamento può produrre differenze
+            di pochi centesimi rispetto agli output calcolati
+            prima dell'esportazione.
+
+            I confronti tra versioni devono mantenere uguali
+            eventi, periodi, basi, quote e notti.
+
+            Un vecchio screening che applica la quota direttamente
+            agli ingressi cumulativi non è equivalente a uno
+            che usa una base normalizzata per la durata.
+            La differenza nei totali può derivare dal metodo,
+            anche quando gli eventi presenti sono gli stessi.
             """
         )
 
     with forecast_tab:
         st.markdown(
             """
-            ### Scenari letti dai file del progetto
+            ### Funzione del forecast nella dashboard
 
-            L'app legge i forecast regionali e provinciali.
-            Non riaddestra i modelli e non ricostruisce
-            i loro parametri dai risultati finali.
+            La sezione Forecast mostra gli scenari regionali
+            e provinciali già prodotti nel progetto.
 
-            Prudente, Intermedio ed Espansivo sono scenari.
-            Non sono automaticamente intervalli di confidenza.
+            L'app legge i risultati dai CSV:
+            non riaddestra i modelli, non aggiorna automaticamente
+            i parametri e non ricostruisce il procedimento
+            di stima dai valori finali.
 
-            La documentazione del modello a monte deve indicare
-            periodo di stima, trattamento del COVID, stagionalità,
-            anno base, crescita e riparto territoriale.
+            Il forecast e il simulatore degli eventi rispondono
+            a domande diverse.
 
-            ### Validazione
+            Il primo descrive possibili traiettorie della domanda
+            nel tempo. Il secondo esplora la dimensione teorica
+            dei pernottamenti associabili agli eventi
+            sotto ipotesi modificabili.
 
-            Confrontare i modelli sugli stessi periodi di test,
-            con una baseline stagionale semplice e senza usare
-            informazioni future nella stima.
+            ### Interpretazione dei tre scenari
 
-            WAPE e bias misurano rispettivamente la dimensione
-            relativa dell'errore e la tendenza a sovrastimare
-            o sottostimare.
+            **Prudente, Intermedio ed Espansivo** sono scenari
+            costruiti a monte secondo le ipotesi del progetto.
 
-            I risultati delle verifiche precedenti non vengono
-            presentati come ricalcolati da questa dashboard.
+            Non sono automaticamente percentili di una distribuzione
+            probabilistica o intervalli di confidenza.
 
-            ### Province
+            Non è quindi corretto attribuire una probabilità
+            al verificarsi di ciascuno scenario senza una specifica
+            procedura di calibrazione.
 
-            Se le previsioni provinciali derivano da quote costanti
-            della regione, non prevedono autonomamente
-            cambiamenti nella distribuzione territoriale.
+            Anche lo scenario intermedio non deve essere interpretato
+            come un esito certo.
+
+            ### Documentazione del modello
+
+            Per rendere il forecast riproducibile,
+            la documentazione a monte deve specificare:
+
+            - periodo di addestramento e periodo di test;
+            - trattamento degli anni pandemici e delle discontinuità;
+            - anno o periodo base;
+            - gestione dei mesi mancanti;
+            - metodo utilizzato per la stagionalità;
+            - ipotesi di crescita dei tre scenari;
+            - eventuale riparto tra regioni e province.
+
+            I CSV finali permettono di consultare le previsioni,
+            ma da soli non dimostrano come siano stati scelti
+            questi parametri.
+
+            ### Validazione temporale
+
+            La qualità di un modello va valutata su periodi
+            non utilizzati per stimarlo.
+
+            I modelli devono essere confrontati sugli stessi
+            territori, mesi e orizzonti di previsione.
+            Una baseline stagionale semplice, come lo stesso mese
+            dell'anno precedente, costituisce un riferimento utile.
+
+            Le informazioni future non devono entrare
+            nella costruzione delle previsioni del periodo di test.
+
+            È utile controllare sia il risultato complessivo,
+            sia le differenze tra regioni e tra mesi:
+            un buon indicatore aggregato può nascondere
+            errori rilevanti in alcuni territori.
+
+            ### Metriche di errore
             """
         )
 
@@ -2546,9 +2831,69 @@ else:
             r"WAPE=100\cdot"
             r"\frac{\sum_t|y_t-\hat y_t|}{\sum_t|y_t|}"
         )
+
+        st.markdown(
+            """
+            Il **WAPE** rapporta la somma degli errori assoluti
+            al volume osservato.
+
+            Valori più bassi indicano minore errore sul campione
+            considerato. Poiché è una misura aggregata,
+            i territori con volumi maggiori hanno più peso
+            rispetto a quelli piccoli.
+            """
+        )
+
         st.latex(
             r"Bias=100\cdot"
             r"\frac{\sum_t(\hat y_t-y_t)}{\sum_t y_t}"
+        )
+
+        st.markdown(
+            """
+            Con questa convenzione, un **bias positivo**
+            indica sovrastima complessiva; un **bias negativo**
+            indica sottostima.
+
+            Un bias vicino a zero non garantisce previsioni accurate:
+            errori positivi e negativi possono compensarsi.
+            Per questo va letto insieme a una misura
+            dell'errore assoluto.
+
+            Le metriche non sono definite quando il rispettivo
+            denominatore è zero.
+
+            I risultati delle validazioni precedenti non vengono
+            presentati come ricalcolati da questa dashboard.
+
+            ### Lettura delle previsioni provinciali
+
+            Se le previsioni provinciali derivano da quote costanti
+            della regione, la dinamica prevista viene ereditata
+            dalla previsione regionale.
+
+            Questo approccio mantiene un collegamento contabile
+            tra i livelli territoriali, ma non prevede autonomamente
+            spostamenti della domanda da una provincia all'altra.
+
+            Il controllo di riconciliazione verifica che la somma
+            provinciale corrisponda al totale regionale.
+            Non misura, da solo, l'accuratezza della previsione.
+
+            ### Collegamento con gli eventi
+
+            I pernottamenti simulati non vengono aggiunti
+            automaticamente al forecast.
+
+            La domanda storica utilizzata per prevedere il turismo
+            può già incorporare eventi ricorrenti.
+            Aggiungere integralmente la loro domanda teorica
+            potrebbe quindi produrre un doppio conteggio.
+
+            Un'integrazione tra eventi e forecast richiederebbe
+            una definizione esplicita della componente già inclusa
+            nella previsione e di quella realmente aggiuntiva.
+            """
         )
 
     with qualita_tab:
@@ -2646,28 +2991,115 @@ else:
 
         st.markdown(
             """
-            ### Controlli e limiti
+            ### Che cosa verificano i controlli
 
-            I valori mancanti non vengono trasformati in zero.
+            I controlli aiutano a individuare problemi
+            di struttura e coerenza interna dei file:
+            colonne richieste, chiavi, duplicazioni,
+            valori mancanti e copertura temporale.
 
-            Gli anni parziali non sono presentati come anni
-            completi nel riepilogo nazionale.
+            Per lo screening vengono inoltre controllati
+            date, durata, giorni nei mesi, quote temporali
+            e stabilità delle basi tra i mesi
+            della stessa riga territoriale.
 
-            Le basi dello screening non vengono riclassificate
-            automaticamente dall'app.
+            Questi controlli sono necessari per eseguire
+            correttamente i calcoli, ma non certificano
+            l'esattezza di ogni fonte o la validità
+            di tutte le ipotesi.
 
-            Un controllo aritmetico superato non certifica
-            la validità causale o la precisione delle fonti.
+            ### Valori mancanti e copertura
 
-            Stagionalità, festività, prezzi, trasporti e altri eventi
-            possono influenzare la domanda turistica.
+            Un valore mancante non equivale a zero.
+            La dashboard non lo sostituisce automaticamente
+            con assenza di domanda.
 
-            Un evento può anche spostare domanda nel tempo
-            o sostituire altri visitatori.
+            Un anno con meno di dodici mesi disponibili
+            non rappresenta un totale annuale completo.
+            Nel riepilogo nazionale gli anni completi
+            vengono identificati rispetto ai territori
+            presenti nel panel.
 
-            Per stimare un effetto causale servono un controfattuale
-            credibile, territori comparabili, controlli per altri
-            fattori e verifica delle tendenze precedenti.
+            Anche l'assenza di un intero territorio richiede
+            un confronto con il perimetro atteso della fonte:
+            non è sufficiente contare i mesi delle regioni presenti.
+
+            ### Coerenza geografica
+
+            I codici NUTS dei dati devono essere coerenti
+            con la versione dei confini cartografici.
+
+            Un territorio non abbinato alla mappa non deve
+            essere interpretato come un territorio con domanda zero.
+
+            Il dettaglio grafico non aumenta la precisione
+            del dato: rappresentare un evento su una mappa
+            non rende osservabile il suo effetto sul turismo locale.
+
+            ### Qualità delle informazioni sugli eventi
+
+            Le basi possono provenire da conteggi pubblicati,
+            stime, quantità approssimative o limiti inferiori.
+
+            La presenza di un valore numerico permette il calcolo,
+            ma non rende tutte le righe ugualmente affidabili.
+
+            Fonti, note e metodo devono essere consultati
+            quando si interpreta un singolo evento,
+            soprattutto per confronti tra sport differenti.
+
+            Il catalogo non va inoltre considerato automaticamente
+            un censimento completo di tutti gli eventi sportivi
+            presenti nei territori.
+
+            ### Limiti dell'interpretazione causale
+
+            Un aumento dei pernottamenti nel mese di un evento
+            può dipendere anche da stagionalità, festività,
+            prezzi, collegamenti di trasporto, condizioni economiche
+            e altre manifestazioni contemporanee.
+
+            Alcuni partecipanti avrebbero visitato comunque
+            il territorio. Altri possono sostituire turisti
+            che rinunciano al soggiorno per prezzi elevati
+            o minore disponibilità.
+
+            L'evento può anche spostare domanda da un altro periodo
+            o da un territorio vicino, senza creare
+            un incremento equivalente nel totale nazionale.
+
+            La simulazione non sottrae automaticamente
+            queste componenti e non misura quindi
+            la domanda netta aggiuntiva.
+
+            ### Che cosa servirebbe per misurare un effetto
+
+            Una stima causale richiederebbe un controfattuale:
+            una valutazione credibile di ciò che sarebbe accaduto
+            in assenza dell'evento.
+
+            Servirebbero territori e periodi comparabili,
+            verifiche delle tendenze precedenti,
+            controlli per altri fattori e attenzione
+            agli effetti sui territori vicini.
+
+            Un confronto prima/dopo o con lo stesso mese
+            dell'anno precedente, da solo, non soddisfa
+            questi requisiti.
+
+            ### Uso corretto dei risultati
+
+            La dashboard è uno strumento di esplorazione,
+            confronto e selezione dei casi da approfondire.
+
+            I risultati vanno letti insieme alla definizione
+            della base, alle ipotesi impostate,
+            alla copertura della fonte e alla qualità
+            delle informazioni disponibili.
+
+            Un rapporto elevato segnala un caso potenzialmente
+            interessante; non dimostra automaticamente
+            un grande impatto economico o turistico.
             """
         )
 
